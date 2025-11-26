@@ -31,6 +31,10 @@
           <h2>实时状态</h2>
           <div class="info-grid">
             <div>
+              <span class="label">技能</span>
+              <span id="abilityInfo" class="value">-</span>
+            </div>
+            <div>
               <span class="label">发射点</span>
               <span id="originInfo" class="value">-</span>
             </div>
@@ -76,17 +80,25 @@
 
           <fieldset>
             <legend>抛物线沙盒</legend>
-            <label>
+            <label class="full-width">
+              技能
+              <select id="abilitySelect"></select>
+            </label>
+            <label data-input="speed">
               初速度 (m/s)
               <input type="number" id="speedInput" min="5" max="120" step="1" value="55" />
             </label>
-            <label>
+            <label data-input="pitch">
               仰角 (°)
               <input type="number" id="pitchInput" min="5" max="80" step="1" value="38" />
             </label>
-            <label>
+            <label data-input="yaw">
               方位角 (°)
               <input type="number" id="yawInput" min="-180" max="180" step="1" value="0" />
+            </label>
+            <label data-input="distance">
+              目标距离 (m)
+              <input type="number" id="distanceInput" min="1" max="200" step="1" value="40" />
             </label>
             <div class="button-row">
               <button type="button" id="fireBtn">发射箭矢</button>

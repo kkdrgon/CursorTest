@@ -142,7 +142,16 @@ header p {
   font-size: 0.9rem;
 }
 
-.controls input[type="number"] {
+.controls label.full-width {
+  width: 100%;
+}
+
+.controls label.input-hidden {
+  display: none;
+}
+
+.controls input[type="number"],
+.controls select {
   padding: 0.45rem;
   border-radius: 8px;
   border: 1px solid var(--panel-border);

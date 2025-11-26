@@ -1,3 +1,5 @@
+import { createAbilityRegistry } from "./js/abilities/index.js";
+
 const MAP_CONFIG = {
   size: { width: 400, height: 300 }, // 米
   canvasScale: 2.5, // px per meter
@@ -133,9 +135,12 @@ const state = {
   launchOrigin: { x: -160, y: 2, z: 0 },
   trajectoryPoints: [],
   impactInfo: null,
+  abilityOverlays: [],
+  activeAbilityId: null,
 };
 
 const infoElements = {
+  ability: document.getElementById("abilityInfo"),
   origin: document.getElementById("originInfo"),
   layer: document.getElementById("impactLayer"),
   coords: document.getElementById("impactCoords"),
@@ -143,6 +148,19 @@ const infoElements = {
 };
 
 const controlsForm = document.getElementById("controls");
+const abilitySelect = document.getElementById("abilitySelect");
+const inputs = {
+  speed: document.getElementById("speedInput"),
+  pitch: document.getElementById("pitchInput"),
+  yaw: document.getElementById("yawInput"),
+  distance: document.getElementById("distanceInput"),
+};
+const inputGroups = {
+  speed: controlsForm.querySelector('[data-input="speed"]'),
+  pitch: controlsForm.querySelector('[data-input="pitch"]'),
+  yaw: controlsForm.querySelector('[data-input="yaw"]'),
+  distance: controlsForm.querySelector('[data-input="distance"]'),
+};
 const eventLog = document.getElementById("eventLog");
 let needsRender = true;
 
@@ -217,6 +235,14 @@ const CollisionSystem = (() => {
   return { isInside, projectOntoBoundary, elevationAt, obstacleHit };
 })();
 
+const abilityRegistry = createAbilityRegistry({
+  mapConfig: MAP_CONFIG,
+  collisionSystem: CollisionSystem,
+});
+const abilityMap = new Map(
+  abilityRegistry.map((ability) => [ability.id, ability])
+);
+
 function invalidate() {
   needsRender = true;
 }
@@ -263,6 +289,7 @@ function drawScene() {
   if (state.show.collision) {
     drawCollisionOverlay();
     drawTrajectory();
+    drawAbilityOverlays();
   } else {
     drawLaunchOrigin();
   }
@@ -514,96 +541,94 @@ function drawTrajectory() {
   ctx.restore();
 }
 
-function simulateTrajectory() {
-  const speed = Number(document.getElementById("speedInput").value);
-  const pitch = Number(document.getElementById("pitchInput").value);
-  const yaw = Number(document.getElementById("yawInput").value);
-  if (Number.isNaN(speed) || Number.isNaN(pitch) || Number.isNaN(yaw)) {
-    logEvent("请输入合法的发射参数。");
+function drawAbilityOverlays() {
+  if (!state.abilityOverlays.length) return;
+  ctx.save();
+  state.abilityOverlays.forEach((overlay) => {
+    if (overlay.type === "line") {
+      const from = worldToCanvas(overlay.from.x, overlay.from.z);
+      const to = worldToCanvas(overlay.to.x, overlay.to.z);
+      ctx.strokeStyle = overlay.color || "#ffffff";
+      ctx.lineWidth = overlay.width || 2;
+      if (overlay.dashed) {
+        ctx.setLineDash(overlay.dashed);
+      }
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+      if (overlay.dashed) {
+        ctx.setLineDash([]);
+      }
+    }
+    if (overlay.type === "circle") {
+      const center = worldToCanvas(overlay.center.x, overlay.center.z);
+      ctx.beginPath();
+      ctx.arc(center.x, center.y, overlay.radius * scale, 0, Math.PI * 2);
+      if (overlay.fill) {
+        ctx.fillStyle = overlay.fill;
+        ctx.fill();
+      }
+      if (overlay.stroke) {
+        if (overlay.dashed) {
+          ctx.setLineDash(overlay.dashed);
+        }
+        ctx.strokeStyle = overlay.stroke;
+        ctx.lineWidth = overlay.lineWidth || 1;
+        ctx.stroke();
+        if (overlay.dashed) {
+          ctx.setLineDash([]);
+        }
+      }
+    }
+  });
+  ctx.restore();
+}
+
+function executeActiveAbility() {
+  const ability = abilityMap.get(state.activeAbilityId);
+  if (!ability) {
+    logEvent("未找到对应技能。");
     return;
   }
 
-  const pitchRad = (pitch * Math.PI) / 180;
-  const yawRad = (yaw * Math.PI) / 180;
-  const dt = 0.05;
-  const maxSteps = 1200;
+  const params = collectAbilityParams();
+  const result = ability.execute({
+    origin: state.launchOrigin,
+    params,
+  });
 
-  let vx = speed * Math.cos(pitchRad) * Math.cos(yawRad);
-  let vz = speed * Math.cos(pitchRad) * Math.sin(yawRad);
-  let vy = speed * Math.sin(pitchRad);
-  let x = state.launchOrigin.x;
-  let y = state.launchOrigin.y;
-  let z = state.launchOrigin.z;
-
-  const trajectory = [{ x, y, z }];
-  let impact = null;
-
-  for (let step = 0; step < maxSteps; step += 1) {
-    x += vx * dt;
-    z += vz * dt;
-    vy -= MAP_CONFIG.gravity * dt;
-    y += vy * dt;
-
-    const obstacleHit = CollisionSystem.obstacleHit(x, z, y);
-    if (obstacleHit) {
-      impact = {
-        layer: obstacleHit.layer,
-        description: `命中 ${obstacleHit.target.type}`,
-        point: obstacleHit.point,
-      };
-      break;
-    }
-
-    const elevation = CollisionSystem.elevationAt(x, z);
-    if (y <= elevation) {
-      impact = {
-        layer: "terrain",
-        description: "命中地形",
-        point: { x, y: elevation, z },
-      };
-      break;
-    }
-
-    if (!CollisionSystem.isInside(x, z) && y <= 0) {
-      impact = {
-        layer: "water",
-        description: "坠入海水",
-        point: { x, y: 0, z },
-      };
-      break;
-    }
-
-    trajectory.push({ x, y, z });
-    if (y < -10) {
-      impact = {
-        layer: "void",
-        description: "超出范围",
-        point: { x, y, z },
-      };
-      break;
-    }
-  }
-
-  state.trajectoryPoints = trajectory;
-  state.impactInfo = impact;
+  state.trajectoryPoints = result.trajectory || [];
+  state.impactInfo = result.impact || null;
+  state.abilityOverlays = result.overlays || [];
   updateInfoPanel();
-  if (impact) {
-    logEvent(
-      `箭矢 ${impact.description}，坐标 (${impact.point.x.toFixed(
-        1
-      )}, ${impact.point.z.toFixed(1)})`
-    );
-  } else {
-    logEvent("箭矢尚未命中，轨迹已达到最大模拟帧。");
+
+  let message = result.message || "技能已执行。";
+  if (state.impactInfo?.point) {
+    const point = state.impactInfo.point;
+    message = `${message}，坐标 (${point.x.toFixed(1)}, ${point.z.toFixed(
+      1
+    )})`;
   }
+  logEvent(`【${ability.label}】${message}`);
   invalidate();
+}
+
+function collectAbilityParams() {
+  return {
+    speed: Number(inputs.speed.value),
+    pitch: Number(inputs.pitch.value),
+    yaw: Number(inputs.yaw.value),
+    distance: Number(inputs.distance.value),
+  };
 }
 
 function resetTrajectory() {
   state.trajectoryPoints = [];
   state.impactInfo = null;
+  state.abilityOverlays = [];
   updateInfoPanel();
-  logEvent("已清除轨迹。");
+  logEvent("已清除轨迹与技能覆盖。");
   invalidate();
 }
 
@@ -617,6 +642,59 @@ function shuffleSpawnPoints() {
       .join(", ")}`
   );
   invalidate();
+}
+
+function initializeAbilityControls() {
+  abilityRegistry.forEach((ability) => {
+    const option = document.createElement("option");
+    option.value = ability.id;
+    option.textContent = ability.label;
+    abilitySelect.appendChild(option);
+  });
+
+  const defaultAbility = abilityRegistry[0];
+  if (defaultAbility) {
+    setActiveAbility(defaultAbility.id, false);
+  }
+
+  abilitySelect.addEventListener("change", (event) => {
+    setActiveAbility(event.target.value, true);
+  });
+}
+
+function setActiveAbility(abilityId, shouldLog) {
+  if (!abilityMap.has(abilityId)) return;
+  state.activeAbilityId = abilityId;
+  abilitySelect.value = abilityId;
+  const ability = abilityMap.get(abilityId);
+  applyAbilityDefaults(ability);
+  refreshAbilityInputVisibility(ability);
+  updateInfoPanel();
+  if (shouldLog) {
+    logEvent(`切换技能：${ability.label}`);
+  }
+}
+
+function applyAbilityDefaults(ability) {
+  const defaults = ability.defaults || {};
+  Object.entries(inputs).forEach(([key, input]) => {
+    if (defaults[key] !== undefined) {
+      input.value = defaults[key];
+    }
+  });
+}
+
+function refreshAbilityInputVisibility(ability) {
+  const required = ability.inputs || {};
+  Object.entries(inputGroups).forEach(([key, group]) => {
+    if (!group) return;
+    const enabled = !!required[key];
+    group.classList.toggle("input-hidden", !enabled);
+    const field = inputs[key];
+    if (field) {
+      field.disabled = !enabled;
+    }
+  });
 }
 
 function setLaunchOriginFromCanvas(event) {
@@ -640,6 +718,8 @@ function setLaunchOriginFromCanvas(event) {
 }
 
 function updateInfoPanel() {
+  const ability = abilityMap.get(state.activeAbilityId);
+  infoElements.ability.textContent = ability ? ability.label : "-";
   infoElements.origin.textContent = `(${state.launchOrigin.x.toFixed(
     1
   )}, ${state.launchOrigin.z.toFixed(1)}, ${state.launchOrigin.y.toFixed(1)})`;
@@ -683,7 +763,7 @@ function attachEvents() {
         invalidate();
       });
     });
-  document.getElementById("fireBtn").addEventListener("click", simulateTrajectory);
+  document.getElementById("fireBtn").addEventListener("click", executeActiveAbility);
   document
     .getElementById("resetTrajectoryBtn")
     .addEventListener("click", resetTrajectory);
@@ -703,6 +783,7 @@ function renderLoop() {
 
 function bootstrap() {
   state.activeSpawns = pickSpawnSet(state.spawnSetIndex);
+  initializeAbilityControls();
   updateInfoPanel();
   logEvent("初始化完成，可开始交互。");
   attachEvents();
