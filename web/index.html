@@ -112,6 +112,27 @@
           </fieldset>
 
           <fieldset>
+            <legend>结印手势</legend>
+            <p class="seal-tip">
+              在下方画出「▽」形结印，拟合度越高，法师技能越强。
+            </p>
+            <canvas
+              id="sealCanvas"
+              width="320"
+              height="200"
+              aria-label="结印绘制区域"
+            >
+              您的浏览器不支持 Canvas。
+            </canvas>
+            <div class="seal-status-row">
+              <span>结印状态：<strong id="sealStatus">未结印</strong></span>
+              <button type="button" id="clearSealBtn" class="ghost small-btn">
+                清除
+              </button>
+            </div>
+          </fieldset>
+
+          <fieldset>
             <legend>刷点调试</legend>
             <p>当前展示随机组合的 4 个刷点（每队 2 个）。</p>
             <div class="button-row">

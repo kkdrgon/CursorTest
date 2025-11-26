@@ -173,12 +173,44 @@ header h1 {
 }
 
 .controls input[type="number"],
-.controls select {
+.controls select,
+.seal-status-row button {
   padding: 0.45rem;
   border-radius: 8px;
   border: 1px solid var(--panel-border);
   background: #050910;
   color: var(--text);
+}
+
+.controls canvas#sealCanvas {
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  border: 1px dashed var(--panel-border);
+  background: rgba(4, 10, 18, 0.6);
+  margin-bottom: 0.6rem;
+  touch-action: none;
+}
+
+.seal-tip {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-soft);
+}
+
+.seal-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.small-btn {
+  padding: 0.35rem 0.65rem;
+  min-width: auto;
+  font-size: 0.85rem;
+  border-radius: 999px;
 }
 
 .controls input[type="checkbox"] {

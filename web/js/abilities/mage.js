@@ -26,8 +26,12 @@ function createFireballAbility({ collisionSystem }) {
     execute({ origin, params }) {
       const speed = clamp(Number(params.speed) || 0, 5, 140);
       const yaw = Number.isFinite(params.yaw) ? Number(params.yaw) : 0;
+      const sealPower = clamp(Number(params.sealPower) || 0, 0, 1);
+      const rapidFire = Boolean(params.sealRapidFire);
       const yawRad = degToRad(yaw);
 
+      const damageMultiplier = 1 + sealPower * 0.8;
+      const rangeBoost = 1 + sealPower * 0.25;
       const vx = speed * Math.cos(yawRad);
       const vz = speed * Math.sin(yawRad);
       const height = Math.max(origin.y + 4, FIREBALL_HEIGHT);
@@ -40,7 +44,10 @@ function createFireballAbility({ collisionSystem }) {
       let impact = null;
       let traveled = 0;
 
-      const maxSteps = Math.ceil(FIREBALL_MAX_RANGE / (speed * FIREBALL_STEP + Number.EPSILON));
+      const effectiveRange = FIREBALL_MAX_RANGE * rangeBoost;
+      const maxSteps = Math.ceil(
+        effectiveRange / (speed * FIREBALL_STEP + Number.EPSILON)
+      );
 
       for (let step = 0; step < maxSteps; step += 1) {
         x += vx * FIREBALL_STEP;
@@ -95,7 +102,9 @@ function createFireballAbility({ collisionSystem }) {
         trajectory,
         impact,
         overlays: [],
-        message: impact.description,
+        message: `${impact.description} · 威力x${damageMultiplier
+          .toFixed(2)
+          .replace(/\.00$/, "")}${rapidFire ? "（连发）" : ""}`,
       };
     },
   };
@@ -113,11 +122,14 @@ function createMeteorAbility({ collisionSystem }) {
     defaults: { yaw: 0, distance: 80 },
     execute({ origin, params }) {
       const yaw = Number.isFinite(params.yaw) ? Number(params.yaw) : 0;
+      const sealPower = clamp(Number(params.sealPower) || 0, 0, 1);
       const distance = clamp(
         Number.isFinite(params.distance) ? Number(params.distance) : 80,
         METEOR_MIN_DISTANCE,
         METEOR_MAX_DISTANCE
       );
+      const radiusScale = 1 + sealPower * 0.4;
+      const channelTime = METEOR_CHANNEL * (1 - sealPower * 0.2);
       const yawRad = degToRad(yaw);
 
       let target = {
@@ -141,7 +153,7 @@ function createMeteorAbility({ collisionSystem }) {
         {
           type: "circle",
           center: target,
-          radius: METEOR_RADIUS,
+          radius: METEOR_RADIUS * radiusScale,
           stroke: "#ff724c",
           fill: "rgba(255, 114, 92, 0.2)",
           lineWidth: 2,
@@ -151,20 +163,27 @@ function createMeteorAbility({ collisionSystem }) {
 
       const impact = {
         layer: "aoe",
-        description: `陨石术落点（引导 ${METEOR_CHANNEL.toFixed(1)}s）`,
+        description: `陨石术落点（引导 ${channelTime.toFixed(1)}s · 半径 x${radiusScale.toFixed(
+          2
+        )})`,
         point: {
           x: target.x,
           y: collisionSystem.elevationAt(target.x, target.z) + 30,
           z: target.z,
         },
-        extra: { radius: METEOR_RADIUS, channel: METEOR_CHANNEL },
+        extra: {
+          radius: METEOR_RADIUS * radiusScale,
+          channel: channelTime,
+        },
       };
 
       return {
         trajectory: [],
         impact,
         overlays,
-        message: `陨石术将在 ${METEOR_CHANNEL.toFixed(1)}s 后轰炸半径 ${METEOR_RADIUS}m 区域`,
+        message: `陨石术将在 ${channelTime.toFixed(
+          1
+        )}s 后轰炸半径 ${(METEOR_RADIUS * radiusScale).toFixed(1)}m 区域`,
       };
     },
   };

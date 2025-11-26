@@ -117,6 +117,23 @@ const TEAM_COLORS = {
   red: "#ff7b7b",
 };
 
+const clamp01 = (value) => Math.max(0, Math.min(1, value));
+const lerp = (a, b, t) => a + (b - a) * t;
+const distance2D = (a, b) =>
+  Math.hypot((a.x ?? 0) - (b.x ?? 0), (a.y ?? a.z ?? 0) - (b.y ?? b.z ?? 0));
+
+const SEAL_SAMPLE_POINTS = 48;
+const SEAL_SCORE_THRESHOLD = 0.45;
+const SEAL_DISTANCE_THRESHOLD = 0.28;
+const SEAL_BUFF_DURATION = 12000;
+const SEAL_MOVE_TOLERANCE = 2.2;
+const SEAL_TEMPLATE_PATH = [
+  { x: 0.15, y: 0.2 },
+  { x: 0.5, y: 0.85 },
+  { x: 0.85, y: 0.2 },
+];
+const SEAL_TEMPLATE_SAMPLES = createTemplateSamples();
+
 const canvas = document.getElementById("mapCanvas");
 const ctx = canvas.getContext("2d");
 const centerPx = { x: canvas.width / 2, y: canvas.height / 2 };
@@ -137,6 +154,17 @@ const state = {
   impactInfo: null,
   abilityOverlays: [],
   activeAbilityId: null,
+  seal: {
+    drawing: false,
+    points: [],
+    lastScore: 0,
+    statusText: "未结印",
+    buff: {
+      score: 0,
+      expiresAt: 0,
+      origin: null,
+    },
+  },
 };
 
 const infoElements = {
@@ -164,6 +192,10 @@ const inputGroups = {
   distance: controlsForm.querySelector('[data-input="distance"]'),
 };
 const eventLog = document.getElementById("eventLog");
+const sealCanvas = document.getElementById("sealCanvas");
+const sealCtx = sealCanvas ? sealCanvas.getContext("2d") : null;
+const sealStatusEl = document.getElementById("sealStatus");
+const clearSealBtn = document.getElementById("clearSealBtn");
 let needsRender = true;
 
 const CollisionSystem = (() => {
@@ -595,9 +627,15 @@ function executeActiveAbility() {
   }
 
   const params = collectAbilityParams();
+  const sealContext = prepareSealForAbility(ability);
+  const enrichedParams = {
+    ...params,
+    sealPower: sealContext.power,
+    sealRapidFire: sealContext.rapidFire,
+  };
   const result = ability.execute({
     origin: state.launchOrigin,
-    params,
+    params: enrichedParams,
   });
 
   state.trajectoryPoints = result.trajectory || [];
@@ -613,6 +651,7 @@ function executeActiveAbility() {
     )})`;
   }
   logEvent(`【${ability.label}】${message}`);
+  handleSealAfterCast(ability, sealContext);
   invalidate();
 }
 
@@ -623,6 +662,65 @@ function collectAbilityParams() {
     yaw: Number(inputs.yaw.value),
     distance: Number(inputs.distance.value),
   };
+}
+
+function prepareSealForAbility(ability) {
+  refreshSealBuff();
+  if (!ability || ability.category !== "法师") {
+    return { power: 0, rapidFire: false };
+  }
+  let power = clamp01(state.seal.lastScore || 0);
+  let rapidFire = false;
+  const buff = state.seal.buff;
+  if (buff.score > 0 && buff.origin) {
+    const now = performance.now();
+    const anchorDist = distance2D(
+      { x: state.launchOrigin.x, y: state.launchOrigin.z },
+      { x: buff.origin.x, y: buff.origin.z }
+    );
+    const active =
+      now < buff.expiresAt && anchorDist <= SEAL_MOVE_TOLERANCE;
+    if (active) {
+      power = Math.max(power, clamp01(buff.score));
+      if (ability.id === "mage_fireball") {
+        rapidFire = true;
+      }
+    }
+  }
+  return { power, rapidFire };
+}
+
+function handleSealAfterCast(ability, sealContext) {
+  if (!ability || ability.category !== "法师") {
+    return;
+  }
+  if (sealContext.power < SEAL_SCORE_THRESHOLD) {
+    updateSealStatus("结印效果较弱，可重新绘制。", false);
+    return;
+  }
+  const percentage = Math.round(clamp01(sealContext.power) * 100);
+  if (sealContext.rapidFire && ability.id === "mage_fireball") {
+    state.seal.buff.expiresAt = performance.now() + SEAL_BUFF_DURATION;
+    updateSealStatus(`连发中（${percentage}%）`, true);
+  } else {
+    updateSealStatus(`结印生效（${percentage}%）`, true);
+  }
+}
+
+function updateSealStatus(text, success) {
+  state.seal.statusText = text;
+  if (sealStatusEl) {
+    sealStatusEl.textContent = text;
+    sealStatusEl.style.color = success ? "#58f3c5" : "#f0f4ff";
+  }
+}
+
+function refreshSealBuff() {
+  const buff = state.seal.buff;
+  if (buff.score > 0 && performance.now() > buff.expiresAt) {
+    state.seal.buff = { score: 0, expiresAt: 0, origin: null };
+    updateSealStatus("结印已过期，请重新绘制。", false);
+  }
 }
 
 function resetTrajectory() {
@@ -714,6 +812,142 @@ function initializePanelToggle() {
   updateLabel();
 }
 
+function initializeSealCanvas() {
+  if (!sealCanvas || !sealCtx) return;
+  sealCanvas.addEventListener("pointerdown", onSealPointerDown);
+  sealCanvas.addEventListener("pointermove", onSealPointerMove);
+  sealCanvas.addEventListener("pointerup", onSealPointerUp);
+  sealCanvas.addEventListener("pointercancel", onSealPointerUp);
+  sealCanvas.addEventListener("pointerleave", onSealPointerUp);
+  if (clearSealBtn) {
+    clearSealBtn.addEventListener("click", () => clearSealGesture(true));
+  }
+  drawSealCanvas();
+  updateSealStatus(state.seal.statusText, false);
+}
+
+function onSealPointerDown(event) {
+  if (!sealCanvas) return;
+  event.preventDefault();
+  sealCanvas.setPointerCapture(event.pointerId);
+  state.seal.drawing = true;
+  state.seal.points = [getSealCanvasPoint(event)];
+  drawSealCanvas();
+}
+
+function onSealPointerMove(event) {
+  if (!state.seal.drawing) return;
+  event.preventDefault();
+  state.seal.points.push(getSealCanvasPoint(event));
+  drawSealCanvas();
+}
+
+function onSealPointerUp(event) {
+  if (!state.seal.drawing) return;
+  if (sealCanvas?.hasPointerCapture(event.pointerId)) {
+    sealCanvas.releasePointerCapture(event.pointerId);
+  }
+  state.seal.drawing = false;
+  finalizeSealGesture();
+}
+
+function getSealCanvasPoint(event) {
+  const rect = sealCanvas.getBoundingClientRect();
+  const ratioX = sealCanvas.width / rect.width;
+  const ratioY = sealCanvas.height / rect.height;
+  return {
+    x: (event.clientX - rect.left) * ratioX,
+    y: (event.clientY - rect.top) * ratioY,
+  };
+}
+
+function finalizeSealGesture() {
+  if (!state.seal.points.length) {
+    return;
+  }
+  const normalized = normalizePath(state.seal.points);
+  if (!normalized) {
+    updateSealStatus("轨迹过短，未结印。", false);
+    state.seal.points = [];
+    drawSealCanvas();
+    return;
+  }
+  const sampled = resamplePath(normalized, SEAL_SAMPLE_POINTS);
+  const avgDistance = averageDistance(sampled, SEAL_TEMPLATE_SAMPLES);
+  const score = clamp01(1 - avgDistance / SEAL_DISTANCE_THRESHOLD);
+  state.seal.lastScore = score;
+  const success = score >= SEAL_SCORE_THRESHOLD;
+  const percentage = Math.round(score * 100);
+  if (success) {
+    state.seal.buff = {
+      score,
+      expiresAt: performance.now() + SEAL_BUFF_DURATION,
+      origin: { x: state.launchOrigin.x, z: state.launchOrigin.z },
+    };
+    updateSealStatus(`结印成功（${percentage}%）`, true);
+    logEvent(`结印成功：拟合 ${percentage}%`);
+  } else {
+    state.seal.buff = { score: 0, expiresAt: 0, origin: null };
+    updateSealStatus(`结印失败（${percentage}%）`, false);
+    logEvent(`结印失败：拟合 ${percentage}%`);
+  }
+  drawSealCanvas();
+}
+
+function clearSealGesture(silent = false) {
+  state.seal.points = [];
+  state.seal.lastScore = 0;
+  state.seal.buff = { score: 0, expiresAt: 0, origin: null };
+  updateSealStatus("未结印", false);
+  drawSealCanvas();
+  if (!silent) {
+    logEvent("已清除结印。");
+  }
+}
+
+function drawSealCanvas() {
+  if (!sealCtx || !sealCanvas) return;
+  const { width, height } = sealCanvas;
+  sealCtx.clearRect(0, 0, width, height);
+  sealCtx.fillStyle = "rgba(4, 10, 18, 0.6)";
+  sealCtx.fillRect(0, 0, width, height);
+
+  // Template guide
+  sealCtx.strokeStyle = "rgba(83, 183, 255, 0.35)";
+  sealCtx.lineWidth = 4;
+  sealCtx.lineCap = "round";
+  sealCtx.beginPath();
+  const pad = 20;
+  SEAL_TEMPLATE_PATH.forEach((point, index) => {
+    const x = pad + point.x * (width - pad * 2);
+    const y = pad + point.y * (height - pad * 2);
+    if (index === 0) {
+      sealCtx.moveTo(x, y);
+    } else {
+      sealCtx.lineTo(x, y);
+    }
+  });
+  sealCtx.stroke();
+
+  if (state.seal.points.length > 1) {
+    sealCtx.strokeStyle = state.seal.lastScore >= SEAL_SCORE_THRESHOLD
+      ? "#58f3c5"
+      : "#f7b32b";
+    if (state.seal.drawing) {
+      sealCtx.strokeStyle = "#ffd37b";
+    }
+    sealCtx.lineWidth = 5;
+    sealCtx.beginPath();
+    state.seal.points.forEach((point, index) => {
+      if (index === 0) {
+        sealCtx.moveTo(point.x, point.y);
+      } else {
+        sealCtx.lineTo(point.x, point.y);
+      }
+    });
+    sealCtx.stroke();
+  }
+}
 function setLaunchOriginFromCanvas(event) {
   const rect = canvas.getBoundingClientRect();
   const x = (event.clientX - rect.left) * (canvas.width / rect.width);
@@ -725,6 +959,7 @@ function setLaunchOriginFromCanvas(event) {
     snapped = true;
   }
   state.launchOrigin = { x: world.x, y: 2, z: world.z };
+  handleSealMovement(world);
   updateInfoPanel();
   logEvent(
     `发射点更新为 (${world.x.toFixed(1)}, ${world.z.toFixed(1)})${
@@ -732,6 +967,19 @@ function setLaunchOriginFromCanvas(event) {
     }`
   );
   invalidate();
+}
+
+function handleSealMovement(newOrigin) {
+  const buff = state.seal.buff;
+  if (!buff.origin || buff.score <= 0) return;
+  const dist = distance2D(
+    { x: newOrigin.x, y: newOrigin.z },
+    { x: buff.origin.x, y: buff.origin.z }
+  );
+  if (dist > SEAL_MOVE_TOLERANCE) {
+    state.seal.buff = { score: 0, expiresAt: 0, origin: null };
+    updateSealStatus("已移动，需重新结印。", false);
+  }
 }
 
 function updateInfoPanel() {
@@ -803,10 +1051,94 @@ function renderLoop() {
   requestAnimationFrame(renderLoop);
 }
 
+function averageDistance(pointsA, pointsB) {
+  const len = Math.min(pointsA.length, pointsB.length);
+  if (!len) return 1;
+  let total = 0;
+  for (let i = 0; i < len; i += 1) {
+    total += distanceXY(pointsA[i], pointsB[i]);
+  }
+  return total / len;
+}
+
+function normalizePath(points) {
+  if (!points.length) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  points.forEach((point) => {
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x);
+    maxY = Math.max(maxY, point.y);
+  });
+  const width = maxX - minX;
+  const height = maxY - minY;
+  const maxDim = Math.max(width, height);
+  if (maxDim < 10) {
+    return null;
+  }
+  return points.map((point) => ({
+    x: (point.x - minX) / maxDim,
+    y: (point.y - minY) / maxDim,
+  }));
+}
+
+function resamplePath(points, sampleCount) {
+  if (!points.length) return [];
+  if (points.length === 1) return Array(sampleCount).fill(points[0]);
+  const totalLength = pathLength(points);
+  if (totalLength === 0) {
+    return Array(sampleCount).fill(points[0]);
+  }
+  const interval = totalLength / Math.max(sampleCount - 1, 1);
+  const newPoints = [points[0]];
+  let accumulated = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    let prev = points[i - 1];
+    let curr = points[i];
+    let segment = distanceXY(prev, curr);
+    if (!segment) continue;
+    while (accumulated + segment >= interval && newPoints.length < sampleCount) {
+      const t = (interval - accumulated) / segment;
+      const nx = lerp(prev.x, curr.x, t);
+      const ny = lerp(prev.y, curr.y, t);
+      const newPoint = { x: nx, y: ny };
+      newPoints.push(newPoint);
+      prev = newPoint;
+      segment = distanceXY(prev, curr);
+      accumulated = 0;
+    }
+    accumulated += segment;
+  }
+  while (newPoints.length < sampleCount) {
+    newPoints.push({ ...points[points.length - 1] });
+  }
+  return newPoints;
+}
+
+function pathLength(points) {
+  let total = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    total += distanceXY(points[i - 1], points[i]);
+  }
+  return total;
+}
+
+function distanceXY(a, b) {
+  return Math.hypot((a.x ?? 0) - (b.x ?? 0), (a.y ?? 0) - (b.y ?? 0));
+}
+
+function createTemplateSamples() {
+  return resamplePath(SEAL_TEMPLATE_PATH, SEAL_SAMPLE_POINTS);
+}
+
 function bootstrap() {
   state.activeSpawns = pickSpawnSet(state.spawnSetIndex);
   initializeAbilityControls();
   initializePanelToggle();
+  initializeSealCanvas();
   updateInfoPanel();
   logEvent("初始化完成，可开始交互。");
   attachEvents();
