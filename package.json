@@ -1,0 +1,28 @@
+{
+  "name": "workspace",
+  "version": "1.0.0",
+  "description": "`web/` 目录包含一个可直接打开的 Canvas 演示，用于预览 400m×300m 椭圆岛地图、刷点分布、主要路径、静态障碍以及抛物线射击模拟。",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "dev": "serve web",
+    "start": "serve web",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kkdrgon/CursorTest.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kkdrgon/CursorTest/issues"
+  },
+  "homepage": "https://github.com/kkdrgon/CursorTest#readme",
+  "devDependencies": {
+    "serve": "^14.2.5"
+  }
+}
