@@ -149,6 +149,8 @@ const infoElements = {
 
 const controlsForm = document.getElementById("controls");
 const abilitySelect = document.getElementById("abilitySelect");
+const sidePanel = document.getElementById("sidePanel");
+const panelToggle = document.getElementById("panelToggle");
 const inputs = {
   speed: document.getElementById("speedInput"),
   pitch: document.getElementById("pitchInput"),
@@ -697,6 +699,21 @@ function refreshAbilityInputVisibility(ability) {
   });
 }
 
+function initializePanelToggle() {
+  if (!panelToggle || !sidePanel) return;
+  let collapsed = false;
+  const updateLabel = () => {
+    panelToggle.textContent = collapsed ? "展开面板" : "折叠面板";
+    panelToggle.setAttribute("aria-expanded", (!collapsed).toString());
+  };
+  panelToggle.addEventListener("click", () => {
+    collapsed = !collapsed;
+    sidePanel.classList.toggle("collapsed", collapsed);
+    updateLabel();
+  });
+  updateLabel();
+}
+
 function setLaunchOriginFromCanvas(event) {
   const rect = canvas.getBoundingClientRect();
   const x = (event.clientX - rect.left) * (canvas.width / rect.width);
@@ -770,7 +787,12 @@ function attachEvents() {
   document
     .getElementById("shuffleSpawnsBtn")
     .addEventListener("click", shuffleSpawnPoints);
-  canvas.addEventListener("click", setLaunchOriginFromCanvas);
+  canvas.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "touch") {
+      event.preventDefault();
+    }
+    setLaunchOriginFromCanvas(event);
+  });
 }
 
 function renderLoop() {
@@ -784,6 +806,7 @@ function renderLoop() {
 function bootstrap() {
   state.activeSpawns = pickSpawnSet(state.spawnSetIndex);
   initializeAbilityControls();
+  initializePanelToggle();
   updateInfoPanel();
   logEvent("初始化完成，可开始交互。");
   attachEvents();

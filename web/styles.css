@@ -24,6 +24,7 @@ body {
   display: flex;
   justify-content: center;
   align-items: stretch;
+  padding: 0;
 }
 
 .app-shell {
@@ -47,10 +48,12 @@ body {
 canvas {
   width: 100%;
   height: auto;
+  max-height: 85vh;
   border-radius: 12px;
   background: radial-gradient(circle at 50% 45%, #051627 0%, #020912 70%);
   border: 1px solid #0f172a;
   display: block;
+  touch-action: none;
 }
 
 .hint-layer {
@@ -82,10 +85,29 @@ header h1 {
   font-size: 1.5rem;
 }
 
-header p {
+.panel-header p {
   margin: 0;
   color: var(--text-soft);
   font-size: 0.95rem;
+}
+
+.panel-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.panel-toggle {
+  display: none;
+  align-self: flex-start;
+  flex: none;
+  background: transparent;
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  font-size: 0.9rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  min-width: auto;
 }
 
 .info-panel {
@@ -229,5 +251,74 @@ button.ghost {
   .canvas-panel,
   .side-panel {
     flex: 1;
+  }
+
+  canvas {
+    max-height: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .side-panel {
+    padding: 1rem;
+  }
+
+  .panel-toggle {
+    display: inline-flex;
+  }
+
+  .side-panel.collapsed .controls,
+  .side-panel.collapsed .log,
+  .side-panel.collapsed .info-panel {
+    display: none;
+  }
+
+  .side-panel.collapsed {
+    padding-bottom: 0.5rem;
+  }
+
+  .hint-layer {
+    font-size: 0.75rem;
+    padding: 0.3rem 0.7rem;
+  }
+
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  canvas {
+    height: auto;
+    max-height: unset;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    padding: 0.5rem;
+  }
+
+  .canvas-panel {
+    padding: 0.4rem;
+  }
+
+  .controls fieldset {
+    padding: 0.75rem;
+  }
+
+  button {
+    min-width: 100px;
+    font-size: 0.9rem;
+  }
+
+  .button-row {
+    flex-direction: column;
+  }
+
+  .hint-layer {
+    position: static;
+    transform: none;
+    margin-top: 0.5rem;
+    width: 100%;
+    text-align: center;
   }
 }
