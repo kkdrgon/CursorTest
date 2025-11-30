@@ -41,6 +41,81 @@
     hover: "rgba(95, 223, 255, 0.2)",
   };
 
+  const ENEMY_TYPES = [
+    {
+      id: "prism",
+      label: "棱镜方阵",
+      shape: "square",
+      color: "#ffb347",
+      size: 24,
+      speedBase: 56,
+      speedScale: 2.2,
+      hpBase: 70,
+      hpScale: 22,
+      rewardBase: 6,
+      rewardScale: 0.85,
+      batch: 1,
+      unlockWave: 1,
+      weight: 1,
+      weightGrowth: 0.04,
+      description: "标准矩阵敌人，攻守兼备。",
+    },
+    {
+      id: "raptor",
+      label: "三角疾行者",
+      shape: "triangle",
+      color: "#ffd166",
+      size: 22,
+      speedBase: 92,
+      speedScale: 3,
+      hpBase: 45,
+      hpScale: 14,
+      rewardBase: 5,
+      rewardScale: 0.6,
+      batch: 1,
+      unlockWave: 2,
+      weight: 0.6,
+      weightGrowth: 0.05,
+      description: "速度极快但身板脆弱的侦察单位。",
+    },
+    {
+      id: "bulwark",
+      label: "六边碉堡",
+      shape: "hex",
+      color: "#ff6b6b",
+      size: 30,
+      speedBase: 36,
+      speedScale: 1.2,
+      hpBase: 140,
+      hpScale: 38,
+      rewardBase: 10,
+      rewardScale: 1.2,
+      batch: 1,
+      unlockWave: 4,
+      weight: 0.45,
+      weightGrowth: 0.06,
+      description: "行动缓慢但装甲厚实，难以击破。",
+    },
+    {
+      id: "swarm",
+      label: "圆核蜂群",
+      shape: "circle",
+      color: "#7dd3fc",
+      size: 18,
+      speedBase: 72,
+      speedScale: 2.4,
+      hpBase: 38,
+      hpScale: 12,
+      rewardBase: 3,
+      rewardScale: 0.45,
+      batch: 2,
+      unlockWave: 3,
+      weight: 0.5,
+      weightGrowth: 0.07,
+      description: "成群结队的小型单位，善于淹没防线。",
+    },
+  ];
+
   const CONSTANTS = {
     towerCost: 40,
     baseLives: 15,
@@ -62,20 +137,26 @@
     hoverSlot: null,
     cursor: null,
     statusText: "等待指令",
+    discoveredTypes: new Set(),
   };
 
   class Enemy {
-    constructor(strength) {
-      this.size = 22;
-      this.speed = 52 + strength * 2 + Math.random() * 12;
-      this.maxHp = 60 + strength * 18;
+    constructor(strength, blueprint) {
+      this.blueprint = blueprint;
+      this.size = blueprint.size;
+      this.shape = blueprint.shape;
+      this.color = blueprint.color;
+      this.speed = blueprint.speedBase + strength * blueprint.speedScale + Math.random() * 10;
+      this.maxHp = blueprint.hpBase + strength * blueprint.hpScale;
       this.hp = this.maxHp;
-      this.reward = 6 + Math.floor(strength * 0.8);
+      this.reward = Math.max(1, Math.round(blueprint.rewardBase + strength * blueprint.rewardScale));
       this.pathIndex = 0;
       this.x = PATH[0].x;
       this.y = PATH[0].y;
       this.finished = false;
       this.hitBase = false;
+      this.typeId = blueprint.id;
+      this.label = blueprint.label;
     }
 
     update(delta) {
@@ -118,20 +199,48 @@
     draw(context) {
       context.save();
       context.translate(this.x, this.y);
-      context.fillStyle = COLORS.enemy;
+      context.fillStyle = this.color;
       context.strokeStyle = "#1d1d1d";
       context.lineWidth = 2;
       context.beginPath();
-      context.rect(-this.size / 2, -this.size / 2, this.size, this.size);
+      const half = this.size / 2;
+      switch (this.shape) {
+        case "triangle":
+          context.moveTo(0, -half);
+          context.lineTo(half, half);
+          context.lineTo(-half, half);
+          break;
+        case "diamond":
+          context.moveTo(0, -half);
+          context.lineTo(half, 0);
+          context.lineTo(0, half);
+          context.lineTo(-half, 0);
+          break;
+        case "circle":
+          context.arc(0, 0, half, 0, Math.PI * 2);
+          break;
+        case "hex":
+          for (let i = 0; i < 6; i += 1) {
+            const angle = (Math.PI / 3) * i + Math.PI / 6;
+            const px = Math.cos(angle) * half;
+            const py = Math.sin(angle) * half;
+            if (i === 0) context.moveTo(px, py);
+            else context.lineTo(px, py);
+          }
+          break;
+        default:
+          context.rect(-half, -half, this.size, this.size);
+          break;
+      }
+      context.closePath();
       context.fill();
       context.stroke();
 
-      // HP bar
       const hpRatio = this.hp / this.maxHp;
       context.fillStyle = "#0f172a";
-      context.fillRect(-this.size / 2, -this.size / 2 - 10, this.size, 4);
+      context.fillRect(-half, -half - 10, this.size, 4);
       context.fillStyle = hpRatio > 0.4 ? "#22d3ee" : "#fb7185";
-      context.fillRect(-this.size / 2, -this.size / 2 - 10, this.size * hpRatio, 4);
+      context.fillRect(-half, -half - 10, this.size * hpRatio, 4);
       context.restore();
     }
   }
@@ -270,6 +379,7 @@
     state.waveController = null;
     state.statusText = "等待指令";
     state.messages = ["战场已重置，准备部署。"];
+    state.discoveredTypes = new Set();
     BUILD_SLOTS.forEach((slot) => {
       slot.occupied = false;
       slot.tower = null;
@@ -331,8 +441,10 @@
     if (state.waveController && state.waveController.active) {
       state.waveController.timer -= delta;
       if (state.waveController.timer <= 0 && state.waveController.remaining > 0) {
-        spawnEnemy(state.waveController.strength);
-        state.waveController.remaining -= 1;
+        const type = pickEnemyType(state.waveController.strength);
+        const batchSize = Math.min(type.batch || 1, state.waveController.remaining);
+        spawnEnemy(state.waveController.strength, type, batchSize);
+        state.waveController.remaining -= batchSize;
         state.waveController.timer = state.waveController.interval;
       }
     }
@@ -396,8 +508,42 @@
     state.beams = state.beams.filter((beam) => beam.alive);
   }
 
-  function spawnEnemy(strength) {
-    state.enemies.push(new Enemy(strength));
+  function spawnEnemy(strength, blueprint = ENEMY_TYPES[0], count = 1) {
+    discoverType(blueprint);
+    for (let i = 0; i < count; i += 1) {
+      state.enemies.push(new Enemy(strength, blueprint));
+    }
+  }
+
+  function pickEnemyType(wave) {
+    const candidates = ENEMY_TYPES.map((type) => ({
+      type,
+      weight: getTypeWeight(type, wave),
+    })).filter((entry) => entry.weight > 0);
+    if (candidates.length === 0) return ENEMY_TYPES[0];
+    const totalWeight = candidates.reduce((sum, entry) => sum + entry.weight, 0);
+    let roll = Math.random() * totalWeight;
+    for (const entry of candidates) {
+      roll -= entry.weight;
+      if (roll <= 0) {
+        return entry.type;
+      }
+    }
+    return candidates[candidates.length - 1].type;
+  }
+
+  function getTypeWeight(type, wave) {
+    if (wave < type.unlockWave) return 0;
+    const growth = type.weightGrowth || 0;
+    const base = type.weight || 0.1;
+    return Math.max(base + (wave - type.unlockWave) * growth, 0.05);
+  }
+
+  function discoverType(type) {
+    if (!state.discoveredTypes.has(type.id)) {
+      state.discoveredTypes.add(type.id);
+      pushMessage(`侦测到新敌人【${type.label}】：${type.description}`);
+    }
   }
 
   function drawBackground() {
