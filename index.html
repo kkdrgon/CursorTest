@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>几何塔防 H5</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <div>
+        <h1>几何塔防试验场</h1>
+        <p>使用简单几何体搭建防线，拦截来袭的数据流敌人。</p>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="board" aria-labelledby="hud-title">
+        <canvas id="gameCanvas" width="960" height="540" role="img" aria-label="塔防战场"></canvas>
+      </section>
+
+      <aside class="panel">
+        <h2 id="hud-title">战场信息</h2>
+        <div class="stats">
+          <div><span>波次</span><strong id="wave">0</strong></div>
+          <div><span>基地耐久</span><strong id="lives">15</strong></div>
+          <div><span>能量</span><strong id="money">120</strong></div>
+          <div><span>状态</span><strong id="status">等待指令</strong></div>
+        </div>
+        <div class="controls">
+          <button id="startBtn" type="button">开始下一波</button>
+          <button id="resetBtn" type="button">重置战场</button>
+        </div>
+        <section class="info">
+          <h3>操作提示</h3>
+          <ul>
+            <li>点击空的建塔圆点可花费能量部署防御塔。</li>
+            <li>塔会自动锁定范围内最近的敌人。</li>
+            <li>每击毁一名敌人可返还少量能量。</li>
+            <li>点击“开始下一波”触发更多敌人。</li>
+          </ul>
+        </section>
+        <section class="log" aria-live="polite" aria-label="战况播报">
+          <h3>战况播报</h3>
+          <ul id="log"></ul>
+        </section>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      <small>由 GPT-5.1 Codex 生成 · 使用 HTML5 Canvas 与基础几何体渲染</small>
+    </footer>
+
+    <script src="src/game.js" defer></script>
+  </body>
+</html>
