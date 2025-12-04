@@ -112,14 +112,6 @@ ul {
   display: none;
 }
 
-.frustum-only {
-  display: none;
-}
-
-.frustum-active .frustum-only {
-  display: flex;
-}
-
 #trackStatus {
   min-height: 18px;
   font-size: 0.78rem;

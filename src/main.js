@@ -687,7 +687,6 @@ function createStationGeometry(position, radius = 1.5, height = 2.2, segments = 
 
 function buildTrackSegmentGeometry(params, startPose) {
   const {
-    type,
     arcAngle,
     direction,
     height,
@@ -736,19 +735,15 @@ function buildTrackSegmentGeometry(params, startPose) {
       startPoint[1],
       center[2] + outerRadiusBottom * sin,
     ]);
-    const innerTopRadius =
-      type === "frustum" ? innerRadiusTop : innerRadiusBottom;
-    const outerTopRadius =
-      type === "frustum" ? outerRadiusTop : outerRadiusBottom;
     topInner.push([
-      center[0] + innerTopRadius * cos,
+      center[0] + innerRadiusTop * cos,
       startPoint[1] + height,
-      center[2] + innerTopRadius * sin,
+      center[2] + innerRadiusTop * sin,
     ]);
     topOuter.push([
-      center[0] + outerTopRadius * cos,
+      center[0] + outerRadiusTop * cos,
       startPoint[1] + height,
-      center[2] + outerTopRadius * sin,
+      center[2] + outerRadiusTop * sin,
     ]);
   }
 
@@ -941,7 +936,6 @@ const cancelBtn = document.getElementById("cancelBtn");
 const selectionInfo = document.getElementById("selectionInfo");
 const trackForm = document.getElementById("trackForm");
 const stationName = document.getElementById("stationName");
-const trackType = document.getElementById("trackType");
 const arcAngleInput = document.getElementById("arcAngle");
 const arcDirectionInput = document.getElementById("arcDirection");
 const heightInput = document.getElementById("segmentHeight");
@@ -1008,16 +1002,6 @@ cancelBtn.addEventListener("click", () => {
   setMode("idle");
 });
 
-trackType.addEventListener("change", () => {
-  if (trackType.value === "frustum") {
-    trackForm.classList.add("frustum-active");
-  } else {
-    trackForm.classList.remove("frustum-active");
-    innerTopInput.value = innerBottomInput.value;
-    outerTopInput.value = outerBottomInput.value;
-  }
-});
-
 addTrackBtn.addEventListener("click", (event) => {
   event.preventDefault();
   const params = readTrackParams();
@@ -1041,23 +1025,22 @@ addTrackBtn.addEventListener("click", (event) => {
 });
 
 function readTrackParams() {
-  const type = trackType.value;
   const arcAngle = Number(arcAngleInput.value);
   const direction = Number(arcDirectionInput.value);
   const height = Number(heightInput.value);
   const innerBottom = Number(innerBottomInput.value);
   const outerBottom = Number(outerBottomInput.value);
-  const innerTop =
-    type === "frustum" ? Number(innerTopInput.value) : innerBottom;
-  const outerTop =
-    type === "frustum" ? Number(outerTopInput.value) : outerBottom;
+  const innerTop = Number(innerTopInput.value);
+  const outerTop = Number(outerTopInput.value);
   const subdivisions = Number(subdivisionsInput.value);
 
   if (
     isNaN(arcAngle) ||
     isNaN(height) ||
     isNaN(innerBottom) ||
-    isNaN(outerBottom)
+    isNaN(outerBottom) ||
+    isNaN(innerTop) ||
+    isNaN(outerTop)
   ) {
     showTrackStatus("参数不完整", true);
     return null;
@@ -1068,7 +1051,6 @@ function readTrackParams() {
   }
 
   return {
-    type,
     arcAngle,
     direction,
     height,
