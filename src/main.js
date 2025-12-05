@@ -2,7 +2,16 @@ const DEG2RAD = Math.PI / 180;
 const MATERIAL_DEFAULT = 0;
 const MATERIAL_GROUND = 1;
 const STATION_SIZE = Object.freeze({ width: 6, depth: 4, height: 2.5 });
-const TRACK_CLEARANCE = 0.2;
+const TIE_HEIGHT = 0.1;
+const RAIL_HEIGHT = 0.1;
+const RAIL_WIDTH_MIN = 0.05;
+const RAIL_WIDTH_MAX = 0.12;
+const RAIL_INSET_FACTOR = 0.25;
+const RAIL_BASE_OFFSET = 0;
+const TIE_LENGTH = 0.45;
+const TIE_SPACING = 0.6;
+const TIE_EXTRA_WIDTH = 0.4;
+const TRACK_CLEARANCE = TIE_HEIGHT;
 const PARK_LIGHT_COLOR = [0.2, 0.28, 0.36];
 const PARK_DARK_COLOR = [0.14, 0.2, 0.27];
 
@@ -627,7 +636,7 @@ function buildTrackSegmentGeometry(params, startPose) {
 
   const signedDir = direction >= 0 ? 1 : -1;
   const arc = Math.max(5, Math.abs(arcAngle)) * DEG2RAD;
-  const slices = Math.max(2, Math.floor(subdivisions || 24));
+  const slices = Math.max(4, Math.floor(subdivisions || 24));
   const startPoint = startPose.position;
   const heading = startPose.heading || 0;
   const tangent = [Math.cos(heading), 0, Math.sin(heading)];
@@ -648,29 +657,33 @@ function buildTrackSegmentGeometry(params, startPose) {
   const topOuter = [];
   const bottomInner = [];
   const bottomOuter = [];
+  const deckThickness = 0.05;
 
   for (let i = 0; i <= slices; i++) {
     const theta = startAngle + angleStep * i;
+    const t = i / slices;
     const cos = Math.cos(theta);
     const sin = Math.sin(theta);
+    const tieTop = startPoint[1] + height * t;
+    const foundationY = tieTop - TIE_HEIGHT;
     bottomInner.push([
       center[0] + innerRadiusBottom * cos,
-      startPoint[1],
+      foundationY - deckThickness,
       center[2] + innerRadiusBottom * sin,
     ]);
     bottomOuter.push([
       center[0] + outerRadiusBottom * cos,
-      startPoint[1],
+      foundationY - deckThickness,
       center[2] + outerRadiusBottom * sin,
     ]);
     topInner.push([
       center[0] + innerRadiusTop * cos,
-      startPoint[1] + height,
+      foundationY,
       center[2] + innerRadiusTop * sin,
     ]);
     topOuter.push([
       center[0] + outerRadiusTop * cos,
-      startPoint[1] + height,
+      foundationY,
       center[2] + outerRadiusTop * sin,
     ]);
   }
@@ -723,13 +736,164 @@ function buildTrackSegmentGeometry(params, startPose) {
     );
   }
 
-  const endAngle = startAngle + angleStep * slices;
-  const endPoint = [
-    center[0] + centerlineRadius * Math.cos(endAngle),
-    startPoint[1],
-    center[2] + centerlineRadius * Math.sin(endAngle),
-  ];
-  const endHeading = wrapAngle(heading + angleStep * slices);
+  const railCenterLine = [];
+  const tangentDirs = [];
+  const lateralDirs = [];
+  const gaugeValues = [];
+
+  for (let i = 0; i <= slices; i++) {
+    railCenterLine.push([
+      (topInner[i][0] + topOuter[i][0]) * 0.5,
+      topInner[i][1] + TIE_HEIGHT,
+      (topInner[i][2] + topOuter[i][2]) * 0.5,
+    ]);
+  }
+
+  for (let i = 0; i <= slices; i++) {
+    const prev = railCenterLine[Math.max(0, i - 1)];
+    const next = railCenterLine[Math.min(slices, i + 1)];
+    tangentDirs[i] = normalizeVec3(subVec3(next, prev));
+    let lateral = subVec3(topOuter[i], topInner[i]);
+    lateral[1] = 0;
+    const lateralLen = lengthVec3(lateral);
+    gaugeValues[i] = Math.max(0.5, lateralLen);
+    if (lateralLen < 1e-5) {
+      lateral = normalizeVec3([-tangentDirs[i][2], 0, tangentDirs[i][0]]);
+    } else {
+      lateral = scaleVec3(lateral, 1 / lateralLen);
+    }
+    lateralDirs[i] = lateral;
+  }
+
+  const railOffset = RAIL_BASE_OFFSET;
+  const railHeight = RAIL_HEIGHT;
+
+  const emitStrip = (bottomA, bottomB, topA, topB) => {
+    for (let i = 0; i < slices; i++) {
+      pushQuad(topA[i], topB[i], topB[i + 1], topA[i + 1]);
+      pushQuad(bottomA[i], bottomA[i + 1], topA[i + 1], topA[i]);
+      pushQuad(topB[i], topB[i + 1], bottomB[i + 1], bottomB[i]);
+    }
+    pushQuad(bottomA[0], bottomB[0], topB[0], topA[0]);
+    pushQuad(
+      bottomA[slices],
+      topA[slices],
+      topB[slices],
+      bottomB[slices]
+    );
+  };
+
+  const buildRailStrip = (useInner) => {
+    const bottomInnerEdge = [];
+    const bottomOuterEdge = [];
+    const topInnerEdge = [];
+    const topOuterEdge = [];
+
+    for (let i = 0; i <= slices; i++) {
+      const gauge = gaugeValues[i];
+      const lateral = lateralDirs[i];
+      const width = clamp(gauge * 0.15, RAIL_WIDTH_MIN, RAIL_WIDTH_MAX);
+      const inset = Math.min(gauge * RAIL_INSET_FACTOR, gauge * 0.4);
+      const baseEdge = useInner ? topInner[i] : topOuter[i];
+      const baseY = baseEdge[1] + TIE_HEIGHT;
+      const direction = useInner ? 1 : -1;
+      const baseCenter = [
+        baseEdge[0] + lateral[0] * direction * (inset + width * 0.5),
+        baseY + railOffset,
+        baseEdge[2] + lateral[2] * direction * (inset + width * 0.5),
+      ];
+      const halfWidthVec = scaleVec3(lateral, width * 0.5);
+      const bottomInnerPoint = subVec3(baseCenter, halfWidthVec);
+      const bottomOuterPoint = addVec3(baseCenter, halfWidthVec);
+      const heightVec = [0, railHeight, 0];
+      const topInnerPoint = addVec3(bottomInnerPoint, heightVec);
+      const topOuterPoint = addVec3(bottomOuterPoint, heightVec);
+      bottomInnerEdge.push(bottomInnerPoint);
+      bottomOuterEdge.push(bottomOuterPoint);
+      topInnerEdge.push(topInnerPoint);
+      topOuterEdge.push(topOuterPoint);
+    }
+
+    emitStrip(bottomInnerEdge, bottomOuterEdge, topInnerEdge, topOuterEdge);
+  };
+
+  buildRailStrip(true);
+  buildRailStrip(false);
+
+  const tieHeight = TIE_HEIGHT;
+  const tieLength = TIE_LENGTH;
+
+  const addSleeper = (index) => {
+    const topCenter = railCenterLine[index];
+    const forwardBase = [tangentDirs[index][0], 0, tangentDirs[index][2]];
+    let forwardDir = normalizeVec3(forwardBase);
+    if (lengthVec3(forwardDir) === 0) {
+      forwardDir = [Math.cos(heading), 0, Math.sin(heading)];
+    }
+    const sideDir = lateralDirs[index];
+    const halfWidthVec = scaleVec3(
+      sideDir,
+      (gaugeValues[index] + TIE_EXTRA_WIDTH) * 0.5
+    );
+    const halfLengthVec = scaleVec3(forwardDir, tieLength * 0.5);
+    const dropVec = [0, tieHeight, 0];
+
+    const topFrontLeft = addVec3(
+      addVec3(topCenter, scaleVec3(halfWidthVec, -1)),
+      halfLengthVec
+    );
+    const topFrontRight = addVec3(
+      addVec3(topCenter, halfWidthVec),
+      halfLengthVec
+    );
+    const topBackRight = addVec3(
+      addVec3(topCenter, halfWidthVec),
+      scaleVec3(halfLengthVec, -1)
+    );
+    const topBackLeft = addVec3(
+      addVec3(topCenter, scaleVec3(halfWidthVec, -1)),
+      scaleVec3(halfLengthVec, -1)
+    );
+
+    const bottomFrontLeft = subVec3(topFrontLeft, dropVec);
+    const bottomFrontRight = subVec3(topFrontRight, dropVec);
+    const bottomBackRight = subVec3(topBackRight, dropVec);
+    const bottomBackLeft = subVec3(topBackLeft, dropVec);
+
+    pushQuad(topFrontLeft, topFrontRight, topBackRight, topBackLeft);
+    pushQuad(
+      bottomFrontRight,
+      bottomFrontLeft,
+      bottomBackLeft,
+      bottomBackRight
+    );
+    pushQuad(bottomFrontLeft, bottomBackLeft, topBackLeft, topFrontLeft);
+    pushQuad(topFrontRight, topBackRight, bottomBackRight, bottomFrontRight);
+    pushQuad(topBackLeft, topBackRight, bottomBackRight, bottomBackLeft);
+    pushQuad(
+      bottomFrontLeft,
+      bottomFrontRight,
+      topFrontRight,
+      topFrontLeft
+    );
+  };
+
+  addSleeper(0);
+  let distanceAccumulator = 0;
+  for (let i = 1; i <= slices; i++) {
+    const segmentLength = lengthVec3(
+      subVec3(railCenterLine[i], railCenterLine[i - 1])
+    );
+    distanceAccumulator += segmentLength;
+    if (distanceAccumulator >= TIE_SPACING || i === slices) {
+      addSleeper(i);
+      distanceAccumulator = 0;
+    }
+  }
+
+  const endPoint = [...railCenterLine[slices]];
+  const lastTangent = tangentDirs[slices];
+  const endHeading = wrapAngle(Math.atan2(lastTangent[2], lastTangent[0]));
   return {
     positions,
     normals,
@@ -743,7 +907,7 @@ function buildTrackSegmentGeometry(params, startPose) {
 /* ---------- 游戏状态 ---------- */
 class GameState {
   constructor() {
-    this.money = 4000;
+    this.money = 100000000;
     this.stationCost = 500;
     this.tileCost = 200;
     this.segmentCostPerDegree = 18;
