@@ -1357,11 +1357,19 @@ const resetModuleBtn = document.getElementById("resetModuleBtn");
 const loadModuleBtn = document.getElementById("loadModuleBtn");
 const moduleLibrarySelect = document.getElementById("moduleLibrarySelect");
 const addModuleBtn = document.getElementById("addModuleBtn");
+const moduleStackList = document.getElementById("moduleStack");
+const moduleEditor = document.getElementById("moduleEditor");
+const openModuleEditorBtn = document.getElementById("openModuleEditorBtn");
+const closeModuleEditorBtn = document.getElementById("closeModuleEditorBtn");
 const trackStatus = document.getElementById("trackStatus");
 const parkSizeLabel = document.getElementById("parkSizeLabel");
 const buyTileBtn = document.getElementById("buyTileBtn");
 
 rebuildParkMeshes();
+resetModuleForm();
+seedDefaultModules();
+populateModuleSelect();
+renderModuleStack();
 
 function updateHud() {
   moneyLabel.textContent = `¥${game.money.toLocaleString("zh-CN")}`;
@@ -1398,16 +1406,43 @@ function setMode(mode) {
   updateHud();
 }
 
+function renderModuleStack() {
+  if (!moduleStackList) return;
+  moduleStackList.innerHTML = "";
+  const coaster = game.getSelectedCoaster();
+  if (!coaster) {
+    const li = document.createElement("li");
+    li.textContent = "未选择站台";
+    moduleStackList.appendChild(li);
+    return;
+  }
+  if (!coaster.modules || coaster.modules.length === 0) {
+    const li = document.createElement("li");
+    li.textContent = "暂无轨道段";
+    moduleStackList.appendChild(li);
+    return;
+  }
+  coaster.modules.forEach((module, index) => {
+    const li = document.createElement("li");
+    li.textContent = `${index + 1}. ${module.name} (${module.length.toFixed(
+      1
+    )} m)`;
+    moduleStackList.appendChild(li);
+  });
+}
+
 function selectStation(station) {
   if (!station) {
     game.selectedStationId = null;
     setMode("idle");
+    renderModuleStack();
     return;
   }
   game.selectedStationId = station.id;
   stationName.textContent = station.label;
   trackStatus.textContent = "";
   setMode("building");
+  renderModuleStack();
 }
 
 function showTrackStatus(message, isError = false) {
@@ -1460,6 +1495,21 @@ loadModuleBtn.addEventListener("click", (event) => {
   showTrackStatus(`已载入单元“${template.name}”`);
 });
 
+openModuleEditorBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  moduleEditor.classList.remove("hidden");
+});
+
+closeModuleEditorBtn.addEventListener("click", () => {
+  moduleEditor.classList.add("hidden");
+});
+
+moduleEditor.addEventListener("click", (event) => {
+  if (event.target === moduleEditor) {
+    moduleEditor.classList.add("hidden");
+  }
+});
+
 addModuleBtn.addEventListener("click", (event) => {
   event.preventDefault();
   const moduleId = moduleLibrarySelect.value;
@@ -1474,6 +1524,7 @@ addModuleBtn.addEventListener("click", (event) => {
     return;
   }
   rebuildCoasterMesh(result.coaster);
+  renderModuleStack();
   showTrackStatus(`添加“${template.name}”成功，花费 ¥${result.cost}`);
   updateHud();
 });
@@ -1545,23 +1596,23 @@ function seedDefaultModules() {
 
 function populateModuleSelect(selectId) {
   moduleLibrarySelect.innerHTML = "";
+  if (!moduleLibrary.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "暂无单元";
+    moduleLibrarySelect.appendChild(option);
+    moduleLibrarySelect.disabled = true;
+    return;
+  }
+  moduleLibrarySelect.disabled = false;
   moduleLibrary.forEach((module) => {
     const option = document.createElement("option");
     option.value = module.id;
     option.textContent = module.name;
     moduleLibrarySelect.appendChild(option);
   });
-  if (moduleLibrary.length === 0) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "暂无单元";
-    moduleLibrarySelect.appendChild(option);
-    moduleLibrarySelect.disabled = true;
-  } else {
-    moduleLibrarySelect.disabled = false;
-    moduleLibrarySelect.value =
-      selectId || moduleLibrarySelect.value || moduleLibrary[0].id;
-  }
+  moduleLibrarySelect.value =
+    selectId || moduleLibrarySelect.value || moduleLibrary[0].id;
 }
 
 function readModuleForm() {
@@ -1656,10 +1707,6 @@ function loadModuleToForm(module) {
     });
   }
 }
-
-resetModuleForm();
-seedDefaultModules();
-populateModuleSelect();
 
 /* ---------- 交互控制 ---------- */
 let pointerTracking = {
