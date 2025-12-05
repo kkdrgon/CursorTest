@@ -1366,10 +1366,6 @@ const parkSizeLabel = document.getElementById("parkSizeLabel");
 const buyTileBtn = document.getElementById("buyTileBtn");
 
 rebuildParkMeshes();
-resetModuleForm();
-seedDefaultModules();
-populateModuleSelect();
-renderModuleStack();
 
 function updateHud() {
   moneyLabel.textContent = `¥${game.money.toLocaleString("zh-CN")}`;
@@ -1707,6 +1703,11 @@ function loadModuleToForm(module) {
     });
   }
 }
+
+resetModuleForm();
+seedDefaultModules();
+populateModuleSelect();
+renderModuleStack();
 
 /* ---------- 交互控制 ---------- */
 let pointerTracking = {

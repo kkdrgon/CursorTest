@@ -1,0 +1,23 @@
+{
+  "name": "workspace",
+  "version": "1.0.0",
+  "description": "",
+  "main": "pw.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kkdrgon/CursorTest.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kkdrgon/CursorTest/issues"
+  },
+  "homepage": "https://github.com/kkdrgon/CursorTest#readme",
+  "dependencies": {
+    "playwright": "^1.57.0"
+  }
+}
