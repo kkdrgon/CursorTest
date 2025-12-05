@@ -777,7 +777,7 @@ class GameState {
     this.stationCounter = 0;
     this.coasterCounter = 0;
     this.segmentCounter = 0;
-    this.cellSize = 10;
+    this.cellSize = 1;
     this.initialParkSize = 60;
     this.purchasedTiles = new Set();
     this.tileBounds = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
@@ -1220,7 +1220,7 @@ function handleCanvasClick(event) {
   }
 
   if (game.mode === "placingStation") {
-    const snapped = snapToGrid(point, 2);
+    const snapped = snapToGrid(point, game.cellSize);
     if (!game.isPointInsidePark(snapped)) {
       selectionInfo.textContent = "只能在已购买的格子内放置站台。";
       return;
