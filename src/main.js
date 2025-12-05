@@ -1,6 +1,8 @@
 const DEG2RAD = Math.PI / 180;
 const MATERIAL_DEFAULT = 0;
 const MATERIAL_GROUND = 1;
+const PARK_LIGHT_COLOR = [0.2, 0.28, 0.36];
+const PARK_DARK_COLOR = [0.14, 0.2, 0.27];
 
 const canvas = document.getElementById("glcanvas");
 const gl = canvas.getContext("webgl2");
@@ -300,6 +302,15 @@ function snapToGrid(point, spacing) {
   ];
 }
 
+function tileKey(ix, iz) {
+  return `${ix},${iz}`;
+}
+
+function parseTileKey(key) {
+  const parts = key.split(",").map((v) => parseInt(v, 10));
+  return { ix: parts[0], iz: parts[1] };
+}
+
 function wrapAngle(angle) {
   const twoPi = Math.PI * 2;
   return ((angle % twoPi) + twoPi) % twoPi;
@@ -475,9 +486,21 @@ class Renderer {
     gl.bindVertexArray(null);
     return {
       vao,
+      buffer,
       vertexCount,
       mode: gl.TRIANGLES,
     };
+  }
+
+  disposeMesh(mesh) {
+    if (!mesh) return;
+    const gl = this.gl;
+    if (mesh.vao) {
+      gl.deleteVertexArray(mesh.vao);
+    }
+    if (mesh.buffer) {
+      gl.deleteBuffer(mesh.buffer);
+    }
   }
 
   drawMesh(mesh, color, material = MATERIAL_DEFAULT) {
@@ -500,8 +523,10 @@ class Renderer {
     gl.useProgram(this.program);
     gl.uniformMatrix4fv(this.locations.viewProj, false, camera.viewProjMatrix);
     gl.uniform3fv(this.locations.lightDir, this.lightDir);
-    if (scene.ground) {
-      this.drawMesh(scene.ground.mesh, scene.ground.color, MATERIAL_GROUND);
+    if (scene.parkMeshes) {
+      for (const tileMesh of scene.parkMeshes) {
+        this.drawMesh(tileMesh.mesh, tileMesh.color, MATERIAL_GROUND);
+      }
     }
     for (const track of scene.tracks) {
       this.drawMesh(track.mesh, track.color, MATERIAL_DEFAULT);
@@ -535,10 +560,8 @@ layout(location=1) in vec3 aNormal;
 uniform mat4 uViewProj;
 
 out vec3 vNormal;
-out vec3 vWorldPos;
 
 void main() {
-  vWorldPos = aPosition;
   vNormal = aNormal;
   gl_Position = uViewProj * vec4(aPosition, 1.0);
 }
@@ -548,7 +571,6 @@ const FRAG_SRC = `#version 300 es
 precision highp float;
 
 in vec3 vNormal;
-in vec3 vWorldPos;
 
 uniform vec3 uColor;
 uniform vec3 uLightDir;
@@ -556,57 +578,46 @@ uniform int uMaterial;
 
 out vec4 outColor;
 
-float gridPattern(vec3 pos) {
-  float scale = 0.1;
-  vec2 coord = pos.xz * scale;
-  vec2 grid = abs(fract(coord - 0.5) - 0.5) / fwidth(coord);
-  float line = min(grid.x, grid.y);
-  return 1.0 - clamp(line, 0.0, 1.0);
-}
-
 void main() {
   vec3 normal = normalize(vNormal);
   float diff = max(dot(normal, normalize(uLightDir)), 0.0);
-  vec3 baseColor = uColor;
+  float lighting = 0.25 + diff * 0.9;
   if (uMaterial == 1) {
-    float grid = gridPattern(vWorldPos);
-    baseColor *= mix(0.4, 1.0, grid);
+    lighting = 0.55 + diff * 0.4;
   }
-  vec3 color = baseColor * (0.25 + diff * 0.9);
+  vec3 color = uColor * lighting;
   outColor = vec4(color, 1.0);
 }
 `;
 
 /* ---------- 几何构造 ---------- */
-function createGroundGeometry(size = 400, y = -0.01) {
-  const half = size;
-  const positions = [
-    -half,
-    y,
-    -half,
-    half,
-    y,
-    -half,
-    half,
-    y,
-    half,
-    -half,
-    y,
-    -half,
-    half,
-    y,
-    half,
-    -half,
-    y,
-    half,
-  ];
-  const normals = new Array(positions.length).fill(0);
-  for (let i = 1; i < positions.length; i += 3) {
-    normals[i - 1] = 0;
-    normals[i] = 1;
-    normals[i + 1] = 0;
+function buildCheckerGeometry(tileCoords, cellSize, y = -0.01) {
+  const even = { positions: [], normals: [] };
+  const odd = { positions: [], normals: [] };
+
+  const appendTile = (target, minX, maxX, minZ, maxZ) => {
+    const topLeft = [minX, y, minZ];
+    const topRight = [maxX, y, minZ];
+    const bottomLeft = [minX, y, maxZ];
+    const bottomRight = [maxX, y, maxZ];
+    const normal = [0, 1, 0];
+    const pushTri = (a, b, c) => {
+      target.positions.push(...a, ...b, ...c);
+      target.normals.push(...normal, ...normal, ...normal);
+    };
+    pushTri(topLeft, bottomLeft, bottomRight);
+    pushTri(topLeft, bottomRight, topRight);
+  };
+
+  for (const { ix, iz } of tileCoords) {
+    const minX = ix * cellSize;
+    const maxX = minX + cellSize;
+    const minZ = iz * cellSize;
+    const maxZ = minZ + cellSize;
+    const target = (Math.abs(ix + iz) & 1) === 0 ? even : odd;
+    appendTile(target, minX, maxX, minZ, maxZ);
   }
-  return { positions, normals };
+  return { even, odd };
 }
 
 function createStationGeometry(position, radius = 1.5, height = 2.2, segments = 24) {
@@ -817,6 +828,7 @@ class GameState {
   constructor() {
     this.money = 4000;
     this.stationCost = 500;
+    this.tileCost = 200;
     this.segmentCostPerDegree = 18;
     this.stations = [];
     this.coasters = [];
@@ -826,6 +838,97 @@ class GameState {
     this.stationCounter = 0;
     this.coasterCounter = 0;
     this.segmentCounter = 0;
+    this.cellSize = 10;
+    this.initialParkSize = 60;
+    this.purchasedTiles = new Set();
+    this.tileBounds = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
+    this.initializePark();
+  }
+
+  initializePark() {
+    const cellsPerAxis = Math.max(
+      1,
+      Math.round(this.initialParkSize / this.cellSize)
+    );
+    const half = Math.floor(cellsPerAxis / 2);
+    const start = -half;
+    const end = start + cellsPerAxis;
+    for (let ix = start; ix < end; ix++) {
+      for (let iz = start; iz < end; iz++) {
+        this.purchasedTiles.add(tileKey(ix, iz));
+      }
+    }
+    this.tileBounds = {
+      minX: start,
+      maxX: end - 1,
+      minZ: start,
+      maxZ: end - 1,
+    };
+  }
+
+  updateTileBounds(ix, iz) {
+    if (this.purchasedTiles.size === 0) {
+      this.tileBounds = { minX: ix, maxX: ix, minZ: iz, maxZ: iz };
+      return;
+    }
+    this.tileBounds.minX = Math.min(this.tileBounds.minX, ix);
+    this.tileBounds.maxX = Math.max(this.tileBounds.maxX, ix);
+    this.tileBounds.minZ = Math.min(this.tileBounds.minZ, iz);
+    this.tileBounds.maxZ = Math.max(this.tileBounds.maxZ, iz);
+  }
+
+  getParkDimensions() {
+    const width =
+      (this.tileBounds.maxX - this.tileBounds.minX + 1) * this.cellSize;
+    const depth =
+      (this.tileBounds.maxZ - this.tileBounds.minZ + 1) * this.cellSize;
+    return { width, depth };
+  }
+
+  pointToTile(point) {
+    return {
+      ix: Math.floor(point[0] / this.cellSize),
+      iz: Math.floor(point[2] / this.cellSize),
+    };
+  }
+
+  hasTile(ix, iz) {
+    return this.purchasedTiles.has(tileKey(ix, iz));
+  }
+
+  isPointInsidePark(point) {
+    const { ix, iz } = this.pointToTile(point);
+    return this.hasTile(ix, iz);
+  }
+
+  canAffordTile() {
+    return this.money >= this.tileCost;
+  }
+
+  isTileAdjacent(ix, iz) {
+    const neighbors = [
+      [ix + 1, iz],
+      [ix - 1, iz],
+      [ix, iz + 1],
+      [ix, iz - 1],
+    ];
+    return neighbors.some(([nx, nz]) => this.hasTile(nx, nz));
+  }
+
+  buyTile(ix, iz) {
+    if (this.hasTile(ix, iz)) {
+      return { error: "该格子已属于公园。" };
+    }
+    if (!this.canAffordTile()) {
+      return { error: "资金不足，无法购买格子。" };
+    }
+    if (this.purchasedTiles.size > 0 && !this.isTileAdjacent(ix, iz)) {
+      return { error: "新格子需要与现有公园相邻。" };
+    }
+    this.purchasedTiles.add(tileKey(ix, iz));
+    this.updateTileBounds(ix, iz);
+    this.money -= this.tileCost;
+    return { ix, iz };
   }
 
   canAffordStation() {
@@ -855,6 +958,9 @@ class GameState {
   }
 
   addStation(position) {
+    if (!this.isPointInsidePark(position)) {
+      return { error: "站台必须放置在公园范围内。" };
+    }
     if (!this.canAffordStation()) {
       return { error: "资金不足，无法购买站台。" };
     }
@@ -895,11 +1001,17 @@ class GameState {
     if (!coaster) {
       return { error: "请先选择站台。" };
     }
+    if (!this.isPointInsidePark(coaster.cursorPose.position)) {
+      return { error: "轨道起点不在公园范围内。" };
+    }
     const cost = this.computeSegmentCost(params);
     if (this.money < cost) {
       return { error: "资金不足，无法建造轨道。" };
     }
     const build = buildTrackSegmentGeometry(params, coaster.cursorPose);
+    if (!this.isPointInsidePark(build.endPose.position)) {
+      return { error: "轨道终点超出公园范围，请先扩展公园。" };
+    }
     coaster.cursorPose = {
       position: [...build.endPose.position],
       heading: build.endPose.heading,
@@ -920,14 +1032,34 @@ class GameState {
 const renderer = new Renderer(gl);
 const camera = new OrbitCamera();
 const scene = {
-  ground: {
-    mesh: renderer.createMesh(createGroundGeometry(400, -0.02)),
-    color: [0.15, 0.21, 0.28],
-  },
+  parkMeshes: [],
   stations: [],
   tracks: [],
 };
 const game = new GameState();
+
+function rebuildParkMeshes() {
+  if (scene.parkMeshes && scene.parkMeshes.length) {
+    for (const tileMesh of scene.parkMeshes) {
+      renderer.disposeMesh(tileMesh.mesh);
+    }
+  }
+  const tiles = Array.from(game.purchasedTiles).map(parseTileKey);
+  const { even, odd } = buildCheckerGeometry(tiles, game.cellSize, -0.02);
+  scene.parkMeshes = [];
+  if (even.positions.length > 0) {
+    scene.parkMeshes.push({
+      mesh: renderer.createMesh(even),
+      color: PARK_LIGHT_COLOR,
+    });
+  }
+  if (odd.positions.length > 0) {
+    scene.parkMeshes.push({
+      mesh: renderer.createMesh(odd),
+      color: PARK_DARK_COLOR,
+    });
+  }
+}
 
 const moneyLabel = document.getElementById("moneyLabel");
 const modeLabel = document.getElementById("modeLabel");
@@ -946,14 +1078,22 @@ const outerTopInput = document.getElementById("outerTop");
 const subdivisionsInput = document.getElementById("subdivisions");
 const addTrackBtn = document.getElementById("addTrackBtn");
 const trackStatus = document.getElementById("trackStatus");
+const parkSizeLabel = document.getElementById("parkSizeLabel");
+const buyTileBtn = document.getElementById("buyTileBtn");
+
+rebuildParkMeshes();
 
 function updateHud() {
   moneyLabel.textContent = `¥${game.money.toLocaleString("zh-CN")}`;
+  const dimensions = game.getParkDimensions();
+  parkSizeLabel.textContent = `${dimensions.width} x ${dimensions.depth}`;
   let modeText = "空闲";
   if (game.mode === "placingStation") modeText = "放置站台";
   if (game.mode === "building") modeText = "建造轨道";
+  if (game.mode === "buyingTile") modeText = "购买格子";
   modeLabel.textContent = modeText;
   buyStationBtn.disabled = !game.canAffordStation();
+  buyTileBtn.disabled = !game.canAffordTile();
 }
 
 function setMode(mode) {
@@ -968,6 +1108,8 @@ function setMode(mode) {
     selectionInfo.classList.remove("hidden");
     if (mode === "placingStation") {
       selectionInfo.textContent = "在地面单击放置新的过山车站台";
+    } else if (mode === "buyingTile") {
+      selectionInfo.textContent = "点击地面购买相邻格子以扩展公园";
     } else {
       selectionInfo.textContent = "点击站台进入建造模式";
     }
@@ -995,6 +1137,11 @@ function showTrackStatus(message, isError = false) {
 buyStationBtn.addEventListener("click", () => {
   if (!game.canAffordStation()) return;
   setMode("placingStation");
+});
+
+buyTileBtn.addEventListener("click", () => {
+  if (!game.canAffordTile()) return;
+  setMode("buyingTile");
 });
 
 cancelBtn.addEventListener("click", () => {
@@ -1119,8 +1266,26 @@ function handleCanvasClick(event) {
   const point = intersectRayPlane(ray.origin, ray.direction, 0);
   if (!point) return;
 
+  if (game.mode === "buyingTile") {
+    const { ix, iz } = game.pointToTile(point);
+    const result = game.buyTile(ix, iz);
+    if (result.error) {
+      selectionInfo.textContent = result.error;
+    } else {
+      rebuildParkMeshes();
+      updateHud();
+      const dims = game.getParkDimensions();
+      selectionInfo.textContent = `成功扩展，当前范围 ${dims.width} x ${dims.depth}`;
+    }
+    return;
+  }
+
   if (game.mode === "placingStation") {
     const snapped = snapToGrid(point, 2);
+    if (!game.isPointInsidePark(snapped)) {
+      selectionInfo.textContent = "只能在已购买的格子内放置站台。";
+      return;
+    }
     const result = game.addStation(snapped);
     if (result.error) {
       selectionInfo.textContent = result.error;
