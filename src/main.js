@@ -331,8 +331,8 @@ class OrbitCamera {
 
   orbit(deltaX, deltaY) {
     const rotSpeed = 0.005;
-    this.theta -= deltaX * rotSpeed;
-    this.phi -= deltaY * rotSpeed;
+    this.theta += deltaX * rotSpeed;
+    this.phi += deltaY * rotSpeed;
     this.phi = clamp(this.phi, this.minPhi, this.maxPhi);
     this.updateMatrices();
   }
@@ -596,18 +596,19 @@ function createStationGeometry(position, size = STATION_SIZE) {
     pushTri(a, c, d, normal);
   };
 
-  // Top, bottom
-  pushQuad(corners.tbl, corners.tbr, corners.tfr, corners.tfl, [0, 1, 0]);
-  pushQuad(corners.bbl, corners.bfl, corners.bfr, corners.bbr, [0, -1, 0]);
+  // Top (facing +Y): ensure CCW order when looking downwards
+  pushQuad(corners.tfl, corners.tfr, corners.tbr, corners.tbl, [0, 1, 0]);
+  // Bottom (facing -Y)
+  pushQuad(corners.bfr, corners.bfl, corners.bbl, corners.bbr, [0, -1, 0]);
 
   // Front (+Z)
-  pushQuad(corners.tfl, corners.tfr, corners.bfr, corners.bfl, [0, 0, 1]);
+  pushQuad(corners.tfl, corners.bfl, corners.bfr, corners.tfr, [0, 0, 1]);
   // Back (-Z)
-  pushQuad(corners.tbr, corners.tbl, corners.bbl, corners.bbr, [0, 0, -1]);
+  pushQuad(corners.tbr, corners.bbr, corners.bbl, corners.tbl, [0, 0, -1]);
   // Left (-X)
-  pushQuad(corners.tbl, corners.tfl, corners.bfl, corners.bbl, [-1, 0, 0]);
+  pushQuad(corners.tbl, corners.bbl, corners.bfl, corners.tfl, [-1, 0, 0]);
   // Right (+X)
-  pushQuad(corners.tfr, corners.tbr, corners.bbr, corners.bfr, [1, 0, 0]);
+  pushQuad(corners.tfr, corners.bfr, corners.bbr, corners.tbr, [1, 0, 0]);
 
   return { positions, normals };
 }
