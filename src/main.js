@@ -523,10 +523,12 @@ class Renderer {
     gl.useProgram(this.program);
     gl.uniformMatrix4fv(this.locations.viewProj, false, camera.viewProjMatrix);
     gl.uniform3fv(this.locations.lightDir, this.lightDir);
-    if (scene.parkMeshes) {
+    if (scene.parkMeshes && scene.parkMeshes.length) {
+      gl.disable(gl.CULL_FACE);
       for (const tileMesh of scene.parkMeshes) {
         this.drawMesh(tileMesh.mesh, tileMesh.color, MATERIAL_GROUND);
       }
+      gl.enable(gl.CULL_FACE);
     }
     for (const track of scene.tracks) {
       this.drawMesh(track.mesh, track.color, MATERIAL_DEFAULT);
