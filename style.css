@@ -118,3 +118,49 @@ ul {
   font-size: 0.78rem;
   margin-top: 4px;
 }
+
+#trackForm .section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#trackForm .sub-panel {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.section-header {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.sub-header {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.module-fields.hidden {
+  display: none;
+}
+
+.bezier-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.actions.stacked {
+  flex-direction: column;
+}
+
+.actions .secondary,
+.actions.stacked .secondary {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.small {
+  font-size: 0.78rem;
+}

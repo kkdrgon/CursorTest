@@ -25,36 +25,77 @@
         <header>轨道参数</header>
         <div id="selectionInfo" class="muted">点击站台进入建造模式</div>
         <div id="trackForm" class="hidden">
-          <div>当前站台：<span id="stationName"></span></div>
-          <label>弧角 (°)
-            <input id="arcAngle" type="number" step="5" value="45" min="10" max="270" />
-          </label>
-          <label>方向
-            <select id="arcDirection">
-              <option value="1">逆时针</option>
-              <option value="-1">顺时针</option>
-            </select>
-          </label>
-          <label>高度
-            <input id="segmentHeight" type="number" step="0.5" value="2.5" min="0.5" max="10" />
-          </label>
-          <label>内径 (底面)
-            <input id="innerBottom" type="number" step="0.5" value="4" min="1" />
-          </label>
-          <label>外径 (底面)
-            <input id="outerBottom" type="number" step="0.5" value="6" min="2" />
-          </label>
-          <label>内径 (顶面)
-            <input id="innerTop" type="number" step="0.5" value="4" min="0.5" />
-          </label>
-          <label>外径 (顶面)
-            <input id="outerTop" type="number" step="0.5" value="6" min="1" />
-          </label>
-          <label>细分
-            <input id="subdivisions" type="number" min="4" max="64" value="24" />
-          </label>
-          <button id="addTrackBtn">添加轨道段</button>
-          <div id="trackStatus" class="muted"></div>
+          <div class="section">
+            <div class="section-header">当前站台：<span id="stationName"></span></div>
+            <div class="sub-panel">
+              <div class="sub-header">轨道单元库</div>
+              <label>单元名称
+                <input id="moduleName" type="text" placeholder="例：直线10m" />
+              </label>
+              <label>类型
+                <select id="moduleType">
+                  <option value="straight">直线</option>
+                  <option value="arc">圆弧</option>
+                  <option value="bezier">贝塞尔</option>
+                </select>
+              </label>
+              <div id="straightFields" class="module-fields">
+                <label>长度 (m)
+                  <input id="straightLength" type="number" step="0.5" value="10" min="0.5" />
+                </label>
+                <label>升降 (m)
+                  <input id="straightRise" type="number" step="0.5" value="0" />
+                </label>
+              </div>
+              <div id="arcFields" class="module-fields hidden">
+                <label>半径 (m)
+                  <input id="arcRadius" type="number" step="0.5" value="12" min="1" />
+                </label>
+                <label>弧角 (°)
+                  <input id="arcModuleAngle" type="number" step="5" value="45" min="5" max="360" />
+                </label>
+                <label>方向
+                  <select id="arcModuleDirection">
+                    <option value="1">逆时针</option>
+                    <option value="-1">顺时针</option>
+                  </select>
+                </label>
+                <label>升降 (m)
+                  <input id="arcRise" type="number" step="0.5" value="0" />
+                </label>
+              </div>
+              <div id="bezierFields" class="module-fields hidden">
+                <p class="muted small">控制点以当前轨道朝向为局部坐标，单位米。</p>
+                <div class="bezier-grid">
+                  <label>CP1 X<input id="bz1x" type="number" step="0.5" value="5" /></label>
+                  <label>CP1 Y<input id="bz1y" type="number" step="0.5" value="0" /></label>
+                  <label>CP1 Z<input id="bz1z" type="number" step="0.5" value="2" /></label>
+                  <label>CP2 X<input id="bz2x" type="number" step="0.5" value="10" /></label>
+                  <label>CP2 Y<input id="bz2y" type="number" step="0.5" value="0" /></label>
+                  <label>CP2 Z<input id="bz2z" type="number" step="0.5" value="-2" /></label>
+                  <label>CP3 X<input id="bz3x" type="number" step="0.5" value="15" /></label>
+                  <label>CP3 Y<input id="bz3y" type="number" step="0.5" value="0" /></label>
+                  <label>CP3 Z<input id="bz3z" type="number" step="0.5" value="0" /></label>
+                </div>
+              </div>
+              <div class="actions stacked">
+                <button id="saveModuleBtn">保存/更新单元</button>
+                <button id="resetModuleBtn" class="secondary">清空编辑</button>
+              </div>
+            </div>
+
+            <div class="sub-panel">
+              <div class="sub-header">搭建轨道</div>
+              <label>可用单元
+                <select id="moduleLibrarySelect"></select>
+              </label>
+              <div class="actions stacked">
+                <button id="loadModuleBtn" class="secondary">载入到编辑器</button>
+                <button id="addModuleBtn">添加到轨道</button>
+              </div>
+              <div id="trackStatus" class="muted"></div>
+            </div>
+          </div>
         </div>
       </section>
 

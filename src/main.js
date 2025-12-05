@@ -12,6 +12,10 @@ const TIE_LENGTH = 0.45;
 const TIE_SPACING = 0.6;
 const TIE_EXTRA_WIDTH = 0.4;
 const TRACK_CLEARANCE = TIE_HEIGHT;
+const SAMPLE_INTERVAL = 0.2;
+const TRACK_HALF_WIDTH = 0.75;
+const TRACK_DECK_THICKNESS = 0.05;
+const RAIL_GAUGE = 1.0;
 const PARK_LIGHT_COLOR = [0.2, 0.28, 0.36];
 const PARK_DARK_COLOR = [0.14, 0.2, 0.27];
 
@@ -622,80 +626,219 @@ function createStationGeometry(position, size = STATION_SIZE) {
   return { positions, normals };
 }
 
-function buildTrackSegmentGeometry(params, startPose) {
-  const {
-    arcAngle,
-    direction,
-    height,
-    innerRadiusBottom,
-    outerRadiusBottom,
-    innerRadiusTop,
-    outerRadiusTop,
-    subdivisions,
-  } = params;
+function sampleStraightModule(params, startPose) {
+  const length = Math.max(0.2, Number(params.length) || 0);
+  const rise = Number(params.rise) || 0;
+  const forward = [Math.cos(startPose.heading), 0, Math.sin(startPose.heading)];
+  const samples = [];
+  let prevPos = [...startPose.position];
+  let progressed = 0;
+  while (progressed < length - 1e-4) {
+    const step = Math.min(SAMPLE_INTERVAL, length - progressed);
+    progressed += step;
+    const t = length === 0 ? 0 : progressed / length;
+    const pos = [
+      startPose.position[0] + forward[0] * progressed,
+      startPose.position[1] + rise * t,
+      startPose.position[2] + forward[2] * progressed,
+    ];
+    const tangent = normalizeOrFallback(subVec3(pos, prevPos), forward);
+    samples.push({ position: pos, tangent });
+    prevPos = pos;
+  }
+  return {
+    samples,
+    endPose: { position: prevPos, heading: startPose.heading },
+    totalLength: length,
+  };
+}
 
-  const signedDir = direction >= 0 ? 1 : -1;
-  const arc = Math.max(5, Math.abs(arcAngle)) * DEG2RAD;
-  const slices = Math.max(4, Math.floor(subdivisions || 24));
+function sampleArcModule(params, startPose) {
+  const radius = Math.max(0.5, Number(params.radius) || 0);
+  const angleDeg = Number(params.angle) || 0;
+  const signedDir = params.direction >= 0 ? 1 : -1;
+  const angle = Math.abs(angleDeg) * DEG2RAD;
+  const rise = Number(params.rise) || 0;
   const startPoint = startPose.position;
-  const heading = startPose.heading || 0;
-  const tangent = [Math.cos(heading), 0, Math.sin(heading)];
+  const tangent = [Math.cos(startPose.heading), 0, Math.sin(startPose.heading)];
   const perpendicular =
     signedDir === 1
       ? [-tangent[2], 0, tangent[0]]
       : [tangent[2], 0, -tangent[0]];
-  const centerlineRadius = (innerRadiusBottom + outerRadiusBottom) * 0.5;
   const center = [
-    startPoint[0] + perpendicular[0] * centerlineRadius,
+    startPoint[0] + perpendicular[0] * radius,
     startPoint[1],
-    startPoint[2] + perpendicular[2] * centerlineRadius,
+    startPoint[2] + perpendicular[2] * radius,
   ];
-  const startAngle = Math.atan2(startPoint[2] - center[2], startPoint[0] - center[0]);
-  const angleStep = (arc / slices) * signedDir;
+  const startAngle = Math.atan2(
+    startPoint[2] - center[2],
+    startPoint[0] - center[0]
+  );
+  const arcLength = radius * angle;
+  const steps = Math.max(1, Math.round(arcLength / SAMPLE_INTERVAL));
+  const samples = [];
+  let prevPos = [...startPoint];
+  for (let i = 1; i <= steps; i++) {
+    const theta = startAngle + signedDir * angle * (i / steps);
+    const pos = [
+      center[0] + radius * Math.cos(theta),
+      startPoint[1] + rise * (i / steps),
+      center[2] + radius * Math.sin(theta),
+    ];
+    const tangentVec = normalizeOrFallback(subVec3(pos, prevPos), tangent);
+    samples.push({ position: pos, tangent: tangentVec });
+    prevPos = pos;
+  }
+  return {
+    samples,
+    endPose: {
+      position: prevPos,
+      heading: wrapAngle(startPose.heading + signedDir * angle),
+    },
+    totalLength: arcLength,
+  };
+}
 
+function cubicBezier(p0, p1, p2, p3, t) {
+  const mt = 1 - t;
+  const mt2 = mt * mt;
+  const t2 = t * t;
+  return [
+    mt2 * mt * p0[0] +
+      3 * mt2 * t * p1[0] +
+      3 * mt * t2 * p2[0] +
+      t2 * t * p3[0],
+    mt2 * mt * p0[1] +
+      3 * mt2 * t * p1[1] +
+      3 * mt * t2 * p2[1] +
+      t2 * t * p3[1],
+    mt2 * mt * p0[2] +
+      3 * mt2 * t * p1[2] +
+      3 * mt * t2 * p2[2] +
+      t2 * t * p3[2],
+  ];
+}
+
+function sampleBezierModule(params, startPose) {
+  const cp1 = [
+    Number(params.bz1x) || 5,
+    Number(params.bz1y) || 0,
+    Number(params.bz1z) || 0,
+  ];
+  const cp2 = [
+    Number(params.bz2x) || 10,
+    Number(params.bz2y) || 0,
+    Number(params.bz2z) || 0,
+  ];
+  const cp3 = [
+    Number(params.bz3x) || 15,
+    Number(params.bz3y) || 0,
+    Number(params.bz3z) || 0,
+  ];
+  const p0 = [...startPose.position];
+  const p1 = localToWorldVector(startPose, cp1);
+  const p2 = localToWorldVector(startPose, cp2);
+  const p3 = localToWorldVector(startPose, cp3);
+  const approxLength =
+    lengthVec3(subVec3(p1, p0)) +
+    lengthVec3(subVec3(p2, p1)) +
+    lengthVec3(subVec3(p3, p2));
+  const segments = Math.max(
+    20,
+    Math.round(Math.max(approxLength, 1) / SAMPLE_INTERVAL) * 5
+  );
+  const points = [];
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    points.push(cubicBezier(p0, p1, p2, p3, t));
+  }
+  const samples = [];
+  let travelled = 0;
+  let nextSampleAt = SAMPLE_INTERVAL;
+  let prevPoint = points[0];
+  for (let i = 1; i < points.length; i++) {
+    const currPoint = points[i];
+    const segVec = subVec3(currPoint, prevPoint);
+    const segLen = lengthVec3(segVec);
+    if (segLen === 0) {
+      prevPoint = currPoint;
+      continue;
+    }
+    while (travelled + segLen >= nextSampleAt) {
+      const ratio = (nextSampleAt - travelled) / segLen;
+      const pos = [
+        prevPoint[0] + segVec[0] * ratio,
+        prevPoint[1] + segVec[1] * ratio,
+        prevPoint[2] + segVec[2] * ratio,
+      ];
+      const tangent = normalizeVec3(segVec);
+      samples.push({ position: pos, tangent });
+      nextSampleAt += SAMPLE_INTERVAL;
+    }
+    travelled += segLen;
+    prevPoint = currPoint;
+  }
+  if (samples.length === 0) {
+    const tangent = normalizeVec3(subVec3(p3, p0));
+    samples.push({ position: [...p3], tangent });
+    travelled = lengthVec3(subVec3(p3, p0));
+  }
+  const endTangent =
+    samples[samples.length - 1]?.tangent ||
+    normalizeVec3(subVec3(p3, points[points.length - 2]));
+  return {
+    samples,
+    endPose: {
+      position: [...samples[samples.length - 1].position],
+      heading: wrapAngle(Math.atan2(endTangent[2], endTangent[0])),
+    },
+    totalLength: travelled,
+  };
+}
+
+function sampleModule(module, startPose) {
+  if (!module) return { error: "未选择轨道单元。" };
+  switch (module.type) {
+    case "straight":
+      return sampleStraightModule(module.params, startPose);
+    case "arc":
+      return sampleArcModule(module.params, startPose);
+    case "bezier":
+      return sampleBezierModule(module.params, startPose);
+    default:
+      return { error: "未知的轨道单元类型。" };
+  }
+}
+
+function computeTangents(samples) {
+  const tangents = [];
+  for (let i = 0; i < samples.length; i++) {
+    const prev = samples[i - 1]?.position || samples[i].position;
+    const next = samples[i + 1]?.position || samples[i].position;
+    tangents[i] = normalizeVec3(subVec3(next, prev));
+  }
+  return tangents;
+}
+
+function buildTrackMeshFromSamples(samples) {
+  if (!samples || samples.length < 2) {
+    return null;
+  }
+  const tangents = computeTangents(samples);
   const topInner = [];
   const topOuter = [];
   const bottomInner = [];
   const bottomOuter = [];
-  const deckThickness = 0.05;
-
-  for (let i = 0; i <= slices; i++) {
-    const theta = startAngle + angleStep * i;
-    const t = i / slices;
-    const cos = Math.cos(theta);
-    const sin = Math.sin(theta);
-    const tieTop = startPoint[1] + height * t;
-    const foundationY = tieTop - TIE_HEIGHT;
-    bottomInner.push([
-      center[0] + innerRadiusBottom * cos,
-      foundationY - deckThickness,
-      center[2] + innerRadiusBottom * sin,
-    ]);
-    bottomOuter.push([
-      center[0] + outerRadiusBottom * cos,
-      foundationY - deckThickness,
-      center[2] + outerRadiusBottom * sin,
-    ]);
-    topInner.push([
-      center[0] + innerRadiusTop * cos,
-      foundationY,
-      center[2] + innerRadiusTop * sin,
-    ]);
-    topOuter.push([
-      center[0] + outerRadiusTop * cos,
-      foundationY,
-      center[2] + outerRadiusTop * sin,
-    ]);
-  }
-
+  const railCenterLine = [];
+  const lateralDirs = [];
+  const gaugeValues = [];
   const positions = [];
   const normals = [];
 
   const pushTri = (a, b, c) => {
     const ab = subVec3(b, a);
     const ac = subVec3(c, a);
-    let normal = crossVec3(ab, ac);
-    normal = normalizeVec3(normal);
+    const normal = normalizeVec3(crossVec3(ab, ac));
     positions.push(...a, ...b, ...c);
     normals.push(...normal, ...normal, ...normal);
   };
@@ -705,29 +848,54 @@ function buildTrackSegmentGeometry(params, startPose) {
     pushTri(a, c, d);
   };
 
-  for (let i = 0; i < slices; i++) {
-    pushQuad(topInner[i], topOuter[i], topOuter[i + 1], topInner[i + 1]);
+  let previousLateral = [1, 0, 0];
+  for (let i = 0; i < samples.length; i++) {
+    const center = samples[i].position;
+    let lateral = crossVec3([0, 1, 0], tangents[i]);
+    if (lengthVec3(lateral) < 1e-5) {
+      lateral = previousLateral;
+    } else {
+      lateral = normalizeVec3(lateral);
+    }
+    previousLateral = lateral;
+    const deckTop = center[1] - TIE_HEIGHT;
+    const deckBottom = deckTop - TRACK_DECK_THICKNESS;
+    const offset = scaleVec3(lateral, TRACK_HALF_WIDTH);
+    const innerTop = [
+      center[0] - offset[0],
+      deckTop,
+      center[2] - offset[2],
+    ];
+    const outerTop = [
+      center[0] + offset[0],
+      deckTop,
+      center[2] + offset[2],
+    ];
+    const innerBottom = [innerTop[0], deckBottom, innerTop[2]];
+    const outerBottom = [outerTop[0], deckBottom, outerTop[2]];
+    topInner.push(innerTop);
+    topOuter.push(outerTop);
+    bottomInner.push(innerBottom);
+    bottomOuter.push(outerBottom);
+    railCenterLine.push([...center]);
+    lateralDirs.push(lateral);
+    gaugeValues.push(RAIL_GAUGE);
   }
 
-  for (let i = 0; i < slices; i++) {
+  for (let i = 0; i < samples.length - 1; i++) {
+    pushQuad(topInner[i], topOuter[i], topOuter[i + 1], topInner[i + 1]);
     pushQuad(
       bottomInner[i],
       bottomInner[i + 1],
       bottomOuter[i + 1],
       bottomOuter[i]
     );
-  }
-
-  for (let i = 0; i < slices; i++) {
     pushQuad(
       bottomOuter[i],
       bottomOuter[i + 1],
       topOuter[i + 1],
       topOuter[i]
     );
-  }
-
-  for (let i = 0; i < slices; i++) {
     pushQuad(
       bottomInner[i + 1],
       bottomInner[i],
@@ -736,51 +904,15 @@ function buildTrackSegmentGeometry(params, startPose) {
     );
   }
 
-  const railCenterLine = [];
-  const tangentDirs = [];
-  const lateralDirs = [];
-  const gaugeValues = [];
-
-  for (let i = 0; i <= slices; i++) {
-    railCenterLine.push([
-      (topInner[i][0] + topOuter[i][0]) * 0.5,
-      topInner[i][1] + TIE_HEIGHT,
-      (topInner[i][2] + topOuter[i][2]) * 0.5,
-    ]);
-  }
-
-  for (let i = 0; i <= slices; i++) {
-    const prev = railCenterLine[Math.max(0, i - 1)];
-    const next = railCenterLine[Math.min(slices, i + 1)];
-    tangentDirs[i] = normalizeVec3(subVec3(next, prev));
-    let lateral = subVec3(topOuter[i], topInner[i]);
-    lateral[1] = 0;
-    const lateralLen = lengthVec3(lateral);
-    gaugeValues[i] = Math.max(0.5, lateralLen);
-    if (lateralLen < 1e-5) {
-      lateral = normalizeVec3([-tangentDirs[i][2], 0, tangentDirs[i][0]]);
-    } else {
-      lateral = scaleVec3(lateral, 1 / lateralLen);
-    }
-    lateralDirs[i] = lateral;
-  }
-
-  const railOffset = RAIL_BASE_OFFSET;
-  const railHeight = RAIL_HEIGHT;
-
   const emitStrip = (bottomA, bottomB, topA, topB) => {
-    for (let i = 0; i < slices; i++) {
+    for (let i = 0; i < bottomA.length - 1; i++) {
       pushQuad(topA[i], topB[i], topB[i + 1], topA[i + 1]);
       pushQuad(bottomA[i], bottomA[i + 1], topA[i + 1], topA[i]);
       pushQuad(topB[i], topB[i + 1], bottomB[i + 1], bottomB[i]);
     }
     pushQuad(bottomA[0], bottomB[0], topB[0], topA[0]);
-    pushQuad(
-      bottomA[slices],
-      topA[slices],
-      topB[slices],
-      bottomB[slices]
-    );
+    const last = bottomA.length - 1;
+    pushQuad(bottomA[last], topA[last], topB[last], bottomB[last]);
   };
 
   const buildRailStrip = (useInner) => {
@@ -788,24 +920,23 @@ function buildTrackSegmentGeometry(params, startPose) {
     const bottomOuterEdge = [];
     const topInnerEdge = [];
     const topOuterEdge = [];
-
-    for (let i = 0; i <= slices; i++) {
-      const gauge = gaugeValues[i];
+    for (let i = 0; i < topInner.length; i++) {
       const lateral = lateralDirs[i];
+      const gauge = gaugeValues[i];
       const width = clamp(gauge * 0.15, RAIL_WIDTH_MIN, RAIL_WIDTH_MAX);
       const inset = Math.min(gauge * RAIL_INSET_FACTOR, gauge * 0.4);
       const baseEdge = useInner ? topInner[i] : topOuter[i];
-      const baseY = baseEdge[1] + TIE_HEIGHT;
+      const baseY = railCenterLine[i][1];
       const direction = useInner ? 1 : -1;
       const baseCenter = [
         baseEdge[0] + lateral[0] * direction * (inset + width * 0.5),
-        baseY + railOffset,
+        baseY + RAIL_BASE_OFFSET,
         baseEdge[2] + lateral[2] * direction * (inset + width * 0.5),
       ];
       const halfWidthVec = scaleVec3(lateral, width * 0.5);
       const bottomInnerPoint = subVec3(baseCenter, halfWidthVec);
       const bottomOuterPoint = addVec3(baseCenter, halfWidthVec);
-      const heightVec = [0, railHeight, 0];
+      const heightVec = [0, RAIL_HEIGHT, 0];
       const topInnerPoint = addVec3(bottomInnerPoint, heightVec);
       const topOuterPoint = addVec3(bottomOuterPoint, heightVec);
       bottomInnerEdge.push(bottomInnerPoint);
@@ -813,30 +944,22 @@ function buildTrackSegmentGeometry(params, startPose) {
       topInnerEdge.push(topInnerPoint);
       topOuterEdge.push(topOuterPoint);
     }
-
     emitStrip(bottomInnerEdge, bottomOuterEdge, topInnerEdge, topOuterEdge);
   };
 
   buildRailStrip(true);
   buildRailStrip(false);
 
-  const tieHeight = TIE_HEIGHT;
-  const tieLength = TIE_LENGTH;
-
   const addSleeper = (index) => {
     const topCenter = railCenterLine[index];
-    const forwardBase = [tangentDirs[index][0], 0, tangentDirs[index][2]];
-    let forwardDir = normalizeVec3(forwardBase);
-    if (lengthVec3(forwardDir) === 0) {
-      forwardDir = [Math.cos(heading), 0, Math.sin(heading)];
-    }
+    const forward = normalizeOrFallback(tangents[index], [1, 0, 0]);
     const sideDir = lateralDirs[index];
     const halfWidthVec = scaleVec3(
       sideDir,
       (gaugeValues[index] + TIE_EXTRA_WIDTH) * 0.5
     );
-    const halfLengthVec = scaleVec3(forwardDir, tieLength * 0.5);
-    const dropVec = [0, tieHeight, 0];
+    const halfLengthVec = scaleVec3(forward, TIE_LENGTH * 0.5);
+    const dropVec = [0, TIE_HEIGHT, 0];
 
     const topFrontLeft = addVec3(
       addVec3(topCenter, scaleVec3(halfWidthVec, -1)),
@@ -879,29 +1002,32 @@ function buildTrackSegmentGeometry(params, startPose) {
   };
 
   addSleeper(0);
-  let distanceAccumulator = 0;
-  for (let i = 1; i <= slices; i++) {
+  let accumulated = 0;
+  for (let i = 1; i < railCenterLine.length; i++) {
     const segmentLength = lengthVec3(
       subVec3(railCenterLine[i], railCenterLine[i - 1])
     );
-    distanceAccumulator += segmentLength;
-    if (distanceAccumulator >= TIE_SPACING || i === slices) {
+    accumulated += segmentLength;
+    if (accumulated >= TIE_SPACING || i === railCenterLine.length - 1) {
       addSleeper(i);
-      distanceAccumulator = 0;
+      accumulated = 0;
     }
   }
 
-  const endPoint = [...railCenterLine[slices]];
-  const lastTangent = tangentDirs[slices];
-  const endHeading = wrapAngle(Math.atan2(lastTangent[2], lastTangent[0]));
-  return {
-    positions,
-    normals,
-    endPose: {
-      position: endPoint,
-      heading: endHeading,
-    },
-  };
+  return { positions, normals };
+}
+
+function ensureCoasterSamples(coaster) {
+  if (!coaster.samples || coaster.samples.length === 0) {
+    const heading = coaster.cursorPose?.heading || 0;
+    const tangent = [Math.cos(heading), 0, Math.sin(heading)];
+    coaster.samples = [
+      {
+        position: [...coaster.cursorPose.position],
+        tangent,
+      },
+    ];
+  }
 }
 
 /* ---------- 游戏状态 ---------- */
@@ -910,7 +1036,7 @@ class GameState {
     this.money = 100000000;
     this.stationCost = 500;
     this.tileCost = 200;
-    this.segmentCostPerDegree = 18;
+    this.segmentCostPerMeter = 120;
     this.stations = [];
     this.coasters = [];
     this.tracks = [];
@@ -1076,7 +1202,6 @@ class GameState {
       id: coasterId,
       stationId: station.id,
       color,
-      segments: [],
       cursorPose: {
         position: [
           position[0],
@@ -1085,49 +1210,61 @@ class GameState {
         ],
         heading: 0,
       },
+      modules: [],
+      samples: [],
     };
+    ensureCoasterSamples(coaster);
     this.money -= this.stationCost;
     this.stations.push(station);
     this.coasters.push(coaster);
     return { station, coaster };
   }
 
-  computeSegmentCost(params) {
-    const arc = Math.max(10, Math.abs(params.arcAngle));
-    return Math.round(
-      arc * this.segmentCostPerDegree + params.height * 40
-    );
-  }
-
-  addTrackSegment(params) {
+  addModuleToTrack(module) {
     const coaster = this.getSelectedCoaster();
     if (!coaster) {
       return { error: "请先选择站台。" };
     }
-    if (!this.isPointInsidePark(coaster.cursorPose.position)) {
-      return { error: "轨道起点不在公园范围内。" };
+    ensureCoasterSamples(coaster);
+    const result = sampleModule(module, coaster.cursorPose);
+    if (result.error) {
+      return result;
     }
-    const cost = this.computeSegmentCost(params);
+    if (!result.samples || result.samples.length === 0) {
+      return { error: "该轨道单元长度不足。" };
+    }
+    for (const sample of result.samples) {
+      if (!this.isPointInsidePark(sample.position)) {
+        return { error: "轨道超出公园范围，请先扩展公园。" };
+      }
+    }
+    const totalLength =
+      result.totalLength ||
+      result.samples.reduce((sum, sample, index) => {
+        if (index === 0) return sum;
+        return (
+          sum +
+          lengthVec3(
+            subVec3(sample.position, result.samples[index - 1].position)
+          )
+        );
+      }, 0);
+    const cost = Math.round(totalLength * this.segmentCostPerMeter);
     if (this.money < cost) {
       return { error: "资金不足，无法建造轨道。" };
     }
-    const build = buildTrackSegmentGeometry(params, coaster.cursorPose);
-    if (!this.isPointInsidePark(build.endPose.position)) {
-      return { error: "轨道终点超出公园范围，请先扩展公园。" };
-    }
-    coaster.cursorPose = {
-      position: [...build.endPose.position],
-      heading: build.endPose.heading,
-    };
-    const segmentId = `Segment-${++this.segmentCounter}`;
-    const segment = {
-      id: segmentId,
-      params,
-      cost,
-    };
-    coaster.segments.push(segment);
     this.money -= cost;
-    return { segment, build, coaster };
+    coaster.modules.push({
+      id: `Module-${++this.segmentCounter}`,
+      templateId: module.id,
+      name: module.name,
+      type: module.type,
+      params: { ...module.params },
+      length: totalLength,
+    });
+    coaster.samples = coaster.samples.concat(result.samples);
+    coaster.cursorPose = result.endPose;
+    return { coaster, cost };
   }
 }
 
@@ -1140,6 +1277,26 @@ const scene = {
   tracks: [],
 };
 const game = new GameState();
+
+function rebuildCoasterMesh(coaster) {
+  if (!coaster || !coaster.samples || coaster.samples.length < 2) return;
+  const meshData = buildTrackMeshFromSamples(coaster.samples);
+  if (!meshData) return;
+  const existingIndex = scene.tracks.findIndex(
+    (t) => t.coasterId === coaster.id
+  );
+  if (existingIndex !== -1) {
+    renderer.disposeMesh(scene.tracks[existingIndex].mesh);
+    scene.tracks.splice(existingIndex, 1);
+  }
+  const mesh = renderer.createMesh(meshData);
+  scene.tracks.push({
+    id: `${coaster.id}-track`,
+    coasterId: coaster.id,
+    mesh,
+    color: lightenColor(coaster.color, 0.05),
+  });
+}
 
 function rebuildParkMeshes() {
   if (scene.parkMeshes && scene.parkMeshes.length) {
@@ -1171,15 +1328,35 @@ const cancelBtn = document.getElementById("cancelBtn");
 const selectionInfo = document.getElementById("selectionInfo");
 const trackForm = document.getElementById("trackForm");
 const stationName = document.getElementById("stationName");
-const arcAngleInput = document.getElementById("arcAngle");
-const arcDirectionInput = document.getElementById("arcDirection");
-const heightInput = document.getElementById("segmentHeight");
-const innerBottomInput = document.getElementById("innerBottom");
-const outerBottomInput = document.getElementById("outerBottom");
-const innerTopInput = document.getElementById("innerTop");
-const outerTopInput = document.getElementById("outerTop");
-const subdivisionsInput = document.getElementById("subdivisions");
-const addTrackBtn = document.getElementById("addTrackBtn");
+const moduleNameInput = document.getElementById("moduleName");
+const moduleTypeSelect = document.getElementById("moduleType");
+const straightLengthInput = document.getElementById("straightLength");
+const straightRiseInput = document.getElementById("straightRise");
+const arcRadiusInput = document.getElementById("arcRadius");
+const arcModuleAngleInput = document.getElementById("arcModuleAngle");
+const arcModuleDirectionInput = document.getElementById("arcModuleDirection");
+const arcRiseInput = document.getElementById("arcRise");
+const bezierInputs = {
+  bz1x: document.getElementById("bz1x"),
+  bz1y: document.getElementById("bz1y"),
+  bz1z: document.getElementById("bz1z"),
+  bz2x: document.getElementById("bz2x"),
+  bz2y: document.getElementById("bz2y"),
+  bz2z: document.getElementById("bz2z"),
+  bz3x: document.getElementById("bz3x"),
+  bz3y: document.getElementById("bz3y"),
+  bz3z: document.getElementById("bz3z"),
+};
+const moduleFieldGroups = {
+  straight: document.getElementById("straightFields"),
+  arc: document.getElementById("arcFields"),
+  bezier: document.getElementById("bezierFields"),
+};
+const saveModuleBtn = document.getElementById("saveModuleBtn");
+const resetModuleBtn = document.getElementById("resetModuleBtn");
+const loadModuleBtn = document.getElementById("loadModuleBtn");
+const moduleLibrarySelect = document.getElementById("moduleLibrarySelect");
+const addModuleBtn = document.getElementById("addModuleBtn");
 const trackStatus = document.getElementById("trackStatus");
 const parkSizeLabel = document.getElementById("parkSizeLabel");
 const buyTileBtn = document.getElementById("buyTileBtn");
@@ -1214,7 +1391,8 @@ function setMode(mode) {
     } else if (mode === "buyingTile") {
       selectionInfo.textContent = "点击地面购买相邻格子以扩展公园";
     } else {
-      selectionInfo.textContent = "点击站台进入建造模式";
+      selectionInfo.textContent =
+        "点击站台进入建造模式，然后选择轨道单元搭建";
     }
   }
   updateHud();
@@ -1252,65 +1430,236 @@ cancelBtn.addEventListener("click", () => {
   setMode("idle");
 });
 
-addTrackBtn.addEventListener("click", (event) => {
+moduleTypeSelect.addEventListener("change", updateModuleFieldVisibility);
+
+saveModuleBtn.addEventListener("click", (event) => {
   event.preventDefault();
-  const params = readTrackParams();
-  if (!params) return;
-  const result = game.addTrackSegment(params);
+  const payload = readModuleForm();
+  if (!payload) return;
+  upsertModuleDefinition(payload, editingModuleId);
+  populateModuleSelect(payload.id);
+  editingModuleId = payload.id;
+  showTrackStatus(`单元“${payload.name}”已保存`);
+});
+
+resetModuleBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  resetModuleForm();
+  showTrackStatus("已清空单元编辑表单");
+});
+
+loadModuleBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  const moduleId = moduleLibrarySelect.value;
+  const template = moduleLibrary.find((m) => m.id === moduleId);
+  if (!template) {
+    showTrackStatus("请选择要载入的单元", true);
+    return;
+  }
+  loadModuleToForm(template);
+  showTrackStatus(`已载入单元“${template.name}”`);
+});
+
+addModuleBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  const moduleId = moduleLibrarySelect.value;
+  const template = moduleLibrary.find((m) => m.id === moduleId);
+  if (!template) {
+    showTrackStatus("请选择可用的轨道单元", true);
+    return;
+  }
+  const result = game.addModuleToTrack(template);
   if (result.error) {
     showTrackStatus(result.error, true);
     return;
   }
-  const mesh = renderer.createMesh({
-    positions: result.build.positions,
-    normals: result.build.normals,
-  });
-  scene.tracks.push({
-    id: result.segment.id,
-    mesh,
-    color: lightenColor(result.coaster.color, 0.05),
-  });
-  showTrackStatus(`轨道建造完成，花费 ¥${result.segment.cost}`);
+  rebuildCoasterMesh(result.coaster);
+  showTrackStatus(`添加“${template.name}”成功，花费 ¥${result.cost}`);
   updateHud();
 });
 
-function readTrackParams() {
-  const arcAngle = Number(arcAngleInput.value);
-  const direction = Number(arcDirectionInput.value);
-  const height = Number(heightInput.value);
-  const innerBottom = Number(innerBottomInput.value);
-  const outerBottom = Number(outerBottomInput.value);
-  const innerTop = Number(innerTopInput.value);
-  const outerTop = Number(outerTopInput.value);
-  const subdivisions = Number(subdivisionsInput.value);
-
-  if (
-    isNaN(arcAngle) ||
-    isNaN(height) ||
-    isNaN(innerBottom) ||
-    isNaN(outerBottom) ||
-    isNaN(innerTop) ||
-    isNaN(outerTop)
-  ) {
-    showTrackStatus("参数不完整", true);
-    return null;
-  }
-  if (outerBottom <= innerBottom || outerTop <= innerTop) {
-    showTrackStatus("外径需大于内径", true);
-    return null;
-  }
-
-  return {
-    arcAngle,
-    direction,
-    height,
-    innerRadiusBottom: innerBottom,
-    outerRadiusBottom: outerBottom,
-    innerRadiusTop: innerTop,
-    outerRadiusTop: outerTop,
-    subdivisions,
-  };
+function updateModuleFieldVisibility() {
+  Object.values(moduleFieldGroups).forEach((el) =>
+    el.classList.add("hidden")
+  );
+  const active = moduleFieldGroups[moduleTypeSelect.value];
+  if (active) active.classList.remove("hidden");
 }
+
+function resetModuleForm() {
+  editingModuleId = null;
+  moduleNameInput.value = "";
+  moduleTypeSelect.value = "straight";
+  straightLengthInput.value = 10;
+  straightRiseInput.value = 0;
+  arcRadiusInput.value = 12;
+  arcModuleAngleInput.value = 45;
+  arcModuleDirectionInput.value = "1";
+  arcRiseInput.value = 0;
+  bezierInputs.bz1x.value = 5;
+  bezierInputs.bz1y.value = 0;
+  bezierInputs.bz1z.value = 3;
+  bezierInputs.bz2x.value = 10;
+  bezierInputs.bz2y.value = 0;
+  bezierInputs.bz2z.value = -3;
+  bezierInputs.bz3x.value = 15;
+  bezierInputs.bz3y.value = 0;
+  bezierInputs.bz3z.value = 0;
+  updateModuleFieldVisibility();
+}
+
+const moduleLibrary = [];
+let moduleCounter = 0;
+let editingModuleId = null;
+
+const DEFAULT_MODULES = [
+  { name: "直线 8m", type: "straight", params: { length: 8, rise: 0 } },
+  {
+    name: "圆弧 45°",
+    type: "arc",
+    params: { radius: 12, angle: 45, direction: 1, rise: 0 },
+  },
+  {
+    name: "S 形贝塞尔",
+    type: "bezier",
+    params: {
+      bz1x: 5,
+      bz1y: 0,
+      bz1z: 3,
+      bz2x: 10,
+      bz2y: 0,
+      bz2z: -3,
+      bz3x: 15,
+      bz3y: 0,
+      bz3z: 0,
+    },
+  },
+];
+
+function seedDefaultModules() {
+  if (moduleLibrary.length > 0) return;
+  DEFAULT_MODULES.forEach((def) => {
+    upsertModuleDefinition(def);
+  });
+}
+
+function populateModuleSelect(selectId) {
+  moduleLibrarySelect.innerHTML = "";
+  moduleLibrary.forEach((module) => {
+    const option = document.createElement("option");
+    option.value = module.id;
+    option.textContent = module.name;
+    moduleLibrarySelect.appendChild(option);
+  });
+  if (moduleLibrary.length === 0) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "暂无单元";
+    moduleLibrarySelect.appendChild(option);
+    moduleLibrarySelect.disabled = true;
+  } else {
+    moduleLibrarySelect.disabled = false;
+    moduleLibrarySelect.value =
+      selectId || moduleLibrarySelect.value || moduleLibrary[0].id;
+  }
+}
+
+function readModuleForm() {
+  const name = moduleNameInput.value.trim();
+  if (!name) {
+    showTrackStatus("请输入单元名称", true);
+    return null;
+  }
+  const type = moduleTypeSelect.value;
+  let params = {};
+  if (type === "straight") {
+    const length = Number(straightLengthInput.value);
+    const rise = Number(straightRiseInput.value);
+    if (isNaN(length) || length <= 0) {
+      showTrackStatus("直线长度需为正数", true);
+      return null;
+    }
+    params = { length, rise: isNaN(rise) ? 0 : rise };
+  } else if (type === "arc") {
+    const radius = Number(arcRadiusInput.value);
+    const angle = Number(arcModuleAngleInput.value);
+    const rise = Number(arcRiseInput.value);
+    if (isNaN(radius) || radius <= 0) {
+      showTrackStatus("圆弧半径需大于0", true);
+      return null;
+    }
+    if (isNaN(angle) || angle === 0) {
+      showTrackStatus("圆弧弧角需非零", true);
+      return null;
+    }
+    params = {
+      radius,
+      angle,
+      direction: Number(arcModuleDirectionInput.value) >= 0 ? 1 : -1,
+      rise: isNaN(rise) ? 0 : rise,
+    };
+  } else if (type === "bezier") {
+    params = Object.fromEntries(
+      Object.entries(bezierInputs).map(([key, input]) => [
+        key,
+        Number(input.value) || 0,
+      ])
+    );
+  } else {
+    showTrackStatus("未知的单元类型", true);
+    return null;
+  }
+  const id = editingModuleId || `module-${++moduleCounter}`;
+  return { id, name, type, params };
+}
+
+function upsertModuleDefinition(definition, existingId) {
+  if (existingId) {
+    const module = moduleLibrary.find((m) => m.id === existingId);
+    if (module) {
+      module.name = definition.name;
+      module.type = definition.type;
+      module.params = { ...definition.params };
+      definition.id = module.id;
+      return module;
+    }
+  }
+  if (!definition.id) {
+    definition.id = `module-${++moduleCounter}`;
+  }
+  moduleLibrary.push({
+    id: definition.id,
+    name: definition.name,
+    type: definition.type,
+    params: { ...definition.params },
+  });
+  return definition;
+}
+
+function loadModuleToForm(module) {
+  editingModuleId = module.id;
+  moduleNameInput.value = module.name;
+  moduleTypeSelect.value = module.type;
+  updateModuleFieldVisibility();
+  if (module.type === "straight") {
+    straightLengthInput.value = module.params.length ?? 10;
+    straightRiseInput.value = module.params.rise ?? 0;
+  } else if (module.type === "arc") {
+    arcRadiusInput.value = module.params.radius ?? 10;
+    arcModuleAngleInput.value = module.params.angle ?? 45;
+    arcModuleDirectionInput.value =
+      module.params.direction >= 0 ? "1" : "-1";
+    arcRiseInput.value = module.params.rise ?? 0;
+  } else if (module.type === "bezier") {
+    Object.entries(bezierInputs).forEach(([key, input]) => {
+      input.value = module.params[key] ?? 0;
+    });
+  }
+}
+
+resetModuleForm();
+seedDefaultModules();
+populateModuleSelect();
 
 /* ---------- 交互控制 ---------- */
 let pointerTracking = {
