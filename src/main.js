@@ -1,6 +1,8 @@
 const DEG2RAD = Math.PI / 180;
 const MATERIAL_DEFAULT = 0;
 const MATERIAL_GROUND = 1;
+const STATION_SIZE = Object.freeze({ width: 6, depth: 4, height: 2.5 });
+const TRACK_CLEARANCE = 0.2;
 const PARK_LIGHT_COLOR = [0.2, 0.28, 0.36];
 const PARK_DARK_COLOR = [0.14, 0.2, 0.27];
 
@@ -559,78 +561,53 @@ function buildCheckerGeometry(tileCoords, cellSize, y = -0.01) {
   return { even, odd };
 }
 
-function createStationGeometry(position, radius = 1.5, height = 2.2, segments = 24) {
+function createStationGeometry(position, size = STATION_SIZE) {
+  const { width, depth, height } = size;
+  const hx = width / 2;
+  const hz = depth / 2;
+  const bottomY = position[1];
+  const topY = position[1] + height;
+  const x0 = position[0] - hx;
+  const x1 = position[0] + hx;
+  const z0 = position[2] - hz;
+  const z1 = position[2] + hz;
+
+  const corners = {
+    bfl: [x0, bottomY, z1],
+    bfr: [x1, bottomY, z1],
+    bbl: [x0, bottomY, z0],
+    bbr: [x1, bottomY, z0],
+    tfl: [x0, topY, z1],
+    tfr: [x1, topY, z1],
+    tbl: [x0, topY, z0],
+    tbr: [x1, topY, z0],
+  };
+
   const positions = [];
   const normals = [];
-  const topY = position[1] + height;
-  const bottomY = position[1];
 
   const pushTri = (a, b, c, normal) => {
     positions.push(...a, ...b, ...c);
     normals.push(...normal, ...normal, ...normal);
   };
 
-  for (let i = 0; i < segments; i++) {
-    const theta0 = (i / segments) * Math.PI * 2;
-    const theta1 = ((i + 1) / segments) * Math.PI * 2;
-    const cos0 = Math.cos(theta0);
-    const sin0 = Math.sin(theta0);
-    const cos1 = Math.cos(theta1);
-    const sin1 = Math.sin(theta1);
-    const p0 = [
-      position[0] + radius * cos0,
-      bottomY,
-      position[2] + radius * sin0,
-    ];
-    const p1 = [
-      position[0] + radius * cos1,
-      bottomY,
-      position[2] + radius * sin1,
-    ];
-    const p2 = [
-      position[0] + radius * cos1,
-      topY,
-      position[2] + radius * sin1,
-    ];
-    const p3 = [
-      position[0] + radius * cos0,
-      topY,
-      position[2] + radius * sin0,
-    ];
-    const normal = normalizeVec3([cos0 + cos1, 0, sin0 + sin1]);
-    pushTri(p0, p1, p2, normal);
-    pushTri(p0, p2, p3, normal);
-  }
+  const pushQuad = (a, b, c, d, normal) => {
+    pushTri(a, b, c, normal);
+    pushTri(a, c, d, normal);
+  };
 
-  const centerTop = [position[0], topY, position[2]];
-  const centerBottom = [position[0], bottomY, position[2]];
-  for (let i = 0; i < segments; i++) {
-    const theta0 = (i / segments) * Math.PI * 2;
-    const theta1 = ((i + 1) / segments) * Math.PI * 2;
-    const v0 = [
-      position[0] + radius * Math.cos(theta0),
-      topY,
-      position[2] + radius * Math.sin(theta0),
-    ];
-    const v1 = [
-      position[0] + radius * Math.cos(theta1),
-      topY,
-      position[2] + radius * Math.sin(theta1),
-    ];
-    pushTri(centerTop, v0, v1, [0, 1, 0]);
+  // Top, bottom
+  pushQuad(corners.tbl, corners.tbr, corners.tfr, corners.tfl, [0, 1, 0]);
+  pushQuad(corners.bbl, corners.bfl, corners.bfr, corners.bbr, [0, -1, 0]);
 
-    const b0 = [
-      position[0] + radius * Math.cos(theta0),
-      bottomY,
-      position[2] + radius * Math.sin(theta0),
-    ];
-    const b1 = [
-      position[0] + radius * Math.cos(theta1),
-      bottomY,
-      position[2] + radius * Math.sin(theta1),
-    ];
-    pushTri(centerBottom, b1, b0, [0, -1, 0]);
-  }
+  // Front (+Z)
+  pushQuad(corners.tfl, corners.tfr, corners.bfr, corners.bfl, [0, 0, 1]);
+  // Back (-Z)
+  pushQuad(corners.tbr, corners.tbl, corners.bbl, corners.bbr, [0, 0, -1]);
+  // Left (-X)
+  pushQuad(corners.tbl, corners.tfl, corners.bfl, corners.bbl, [-1, 0, 0]);
+  // Right (+X)
+  pushQuad(corners.tfr, corners.tbr, corners.bbr, corners.bfr, [1, 0, 0]);
 
   return { positions, normals };
 }
@@ -840,6 +817,18 @@ class GameState {
     return this.hasTile(ix, iz);
   }
 
+  isRectangleInsidePark(center, size) {
+    const halfW = size.width / 2;
+    const halfD = size.depth / 2;
+    const corners = [
+      [center[0] - halfW, center[1], center[2] - halfD],
+      [center[0] - halfW, center[1], center[2] + halfD],
+      [center[0] + halfW, center[1], center[2] - halfD],
+      [center[0] + halfW, center[1], center[2] + halfD],
+    ];
+    return corners.every((corner) => this.isPointInsidePark(corner));
+  }
+
   canAffordTile() {
     return this.money >= this.tileCost;
   }
@@ -874,9 +863,14 @@ class GameState {
     return this.money >= this.stationCost;
   }
 
-  findStationAt(point, radius = 2.2) {
+  findStationAt(point) {
     for (const station of this.stations) {
-      if (distance2D(station.position, point) <= radius) {
+      const halfW = (station.size?.width || STATION_SIZE.width) / 2;
+      const halfD = (station.size?.depth || STATION_SIZE.depth) / 2;
+      if (
+        Math.abs(point[0] - station.position[0]) <= halfW &&
+        Math.abs(point[2] - station.position[2]) <= halfD
+      ) {
         return station;
       }
     }
@@ -897,8 +891,8 @@ class GameState {
   }
 
   addStation(position) {
-    if (!this.isPointInsidePark(position)) {
-      return { error: "站台必须放置在公园范围内。" };
+    if (!this.isRectangleInsidePark(position, STATION_SIZE)) {
+      return { error: "站台必须完全位于公园范围内。" };
     }
     if (!this.canAffordStation()) {
       return { error: "资金不足，无法购买站台。" };
@@ -908,7 +902,8 @@ class GameState {
       id: stationId,
       label: `站台 ${this.stationCounter}`,
       position: [...position],
-      radius: 1.6,
+      size: { ...STATION_SIZE },
+      topY: position[1] + STATION_SIZE.height,
     };
     const coasterId = `Coaster-${++this.coasterCounter}`;
     const color = randomCoasterColor();
@@ -918,7 +913,11 @@ class GameState {
       color,
       segments: [],
       cursorPose: {
-        position: [...position],
+        position: [
+          position[0],
+          station.topY + TRACK_CLEARANCE,
+          position[2],
+        ],
         heading: 0,
       },
     };
@@ -1221,8 +1220,8 @@ function handleCanvasClick(event) {
 
   if (game.mode === "placingStation") {
     const snapped = snapToGrid(point, game.cellSize);
-    if (!game.isPointInsidePark(snapped)) {
-      selectionInfo.textContent = "只能在已购买的格子内放置站台。";
+    if (!game.isRectangleInsidePark(snapped, STATION_SIZE)) {
+      selectionInfo.textContent = "站台需完全处于已购买的格子内。";
       return;
     }
     const result = game.addStation(snapped);
@@ -1232,7 +1231,7 @@ function handleCanvasClick(event) {
       return;
     }
     const mesh = renderer.createMesh(
-      createStationGeometry(result.station.position, 1.6, 2.5, 24)
+      createStationGeometry(result.station.position, result.station.size)
     );
     const baseColor = lightenColor(result.coaster.color, 0.05);
     const highlightColor = lightenColor(result.coaster.color, 0.25);
@@ -1247,7 +1246,7 @@ function handleCanvasClick(event) {
     return;
   }
 
-  const station = game.findStationAt(point, 1.8);
+  const station = game.findStationAt(point);
   if (station) {
     selectStation(station);
   } else {
