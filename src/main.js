@@ -1,7 +1,10 @@
 const DEG2RAD = Math.PI / 180;
+const RAD2DEG = 180 / Math.PI;
 const MATERIAL_DEFAULT = 0;
 const MATERIAL_GROUND = 1;
-const STATION_SIZE = Object.freeze({ width: 6, depth: 4, height: 2.5 });
+const DEFAULT_STATION_SIZE = Object.freeze({ width: 6, depth: 12, height: 2.5 });
+const MIN_STATION_LENGTH = 10;
+const MAX_STATION_LENGTH = 30;
 const TIE_HEIGHT = 0.1;
 const RAIL_HEIGHT = 0.1;
 const RAIL_WIDTH_MIN = 0.05;
@@ -87,6 +90,32 @@ function rotateVectorAroundAxis(v, axis, angle) {
     v[1] * cos + cross[1] * sin + u[1] * dot * (1 - cos),
     v[2] * cos + cross[2] * sin + u[2] * dot * (1 - cos),
   ];
+}
+
+function projectVectorOntoPlane(vec, normal) {
+  const n = normalizeOrFallback(normal, [0, 1, 0]);
+  return subVec3(vec, scaleVec3(n, dotVec3(vec, n)));
+}
+
+function angleBetweenVectors(a, b) {
+  const la = lengthVec3(a);
+  const lb = lengthVec3(b);
+  if (la === 0 || lb === 0) return 0;
+  let cos = dotVec3(a, b) / (la * lb);
+  cos = clamp(cos, -1, 1);
+  return Math.acos(cos);
+}
+
+function orthogonalVector(v) {
+  const n = normalizeOrFallback(v, [0, 1, 0]);
+  const helper = Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+  return normalizeOrFallback(crossVec3(n, helper), [0, 0, 1]);
+}
+
+function safeHeading(forward, fallback = 0) {
+  const planarLength = Math.hypot(forward[0], forward[2]);
+  if (planarLength < 1e-6) return fallback;
+  return Math.atan2(forward[2], forward[0]);
 }
 
 function mat4Identity() {
@@ -601,6 +630,78 @@ void main() {
 `;
 
 /* ---------- 几何构造 ---------- */
+function buildArcFromConfig(startPose, config) {
+  const radius = Math.max(0.5, Math.abs(Number(config.radius) || 0));
+  const sweepDeg = Math.abs(Number(config.sweepDeg) || 0);
+  if (!sweepDeg || !Number.isFinite(radius)) {
+    return { samples: [], endPose: { ...startPose }, totalLength: 0 };
+  }
+  const sweepRad = sweepDeg * DEG2RAD;
+  const signedDir = config.direction >= 0 ? 1 : -1;
+  const planeNormal = normalizeOrFallback(config.planeNormal, [0, 1, 0]);
+  const startForward = normalizeOrFallback(
+    startPose.forward || [
+      Math.cos(startPose.heading || 0),
+      0,
+      Math.sin(startPose.heading || 0),
+    ],
+    [1, 0, 0]
+  );
+  let tangent = normalizeOrFallback(
+    projectVectorOntoPlane(startForward, planeNormal),
+    startForward
+  );
+  if (lengthVec3(tangent) === 0) {
+    tangent = orthogonalVector(planeNormal);
+  }
+  let radial = signedDir === 1 ? crossVec3(planeNormal, tangent) : crossVec3(tangent, planeNormal);
+  let radialUnit = normalizeOrFallback(radial, crossVec3(planeNormal, tangent));
+  if (lengthVec3(radialUnit) === 0) {
+    radialUnit = orthogonalVector(planeNormal);
+  }
+  const center = addVec3(startPose.position, scaleVec3(radialUnit, radius));
+  const planeUnitU = normalizeOrFallback(subVec3(startPose.position, center), radialUnit);
+  let planeUnitV = normalizeOrFallback(crossVec3(planeNormal, planeUnitU), tangent);
+  if (dotVec3(planeUnitV, tangent) < 0) {
+    planeUnitV = scaleVec3(planeUnitV, -1);
+  }
+  const arcLength = radius * sweepRad;
+  const steps = Math.max(1, Math.round(Math.max(arcLength / SAMPLE_INTERVAL, 1)));
+  const samples = [];
+  let prevPos = [...startPose.position];
+  let totalLength = 0;
+  const riseAmount = Number(config.rise) || 0;
+  const riseAxis = normalizeOrFallback(config.riseAxis || planeNormal, planeNormal);
+  for (let i = 1; i <= steps; i++) {
+    const progress = i / steps;
+    const theta = signedDir * sweepRad * progress;
+    let pos = addVec3(
+      center,
+      addVec3(
+        scaleVec3(planeUnitU, radius * Math.cos(theta)),
+        scaleVec3(planeUnitV, radius * Math.sin(theta))
+      )
+    );
+    if (riseAmount !== 0) {
+      pos = addVec3(pos, scaleVec3(riseAxis, riseAmount * progress));
+    }
+    const delta = subVec3(pos, prevPos);
+    const segLen = lengthVec3(delta);
+    totalLength += segLen;
+    const tangentSample = segLen > 0 ? scaleVec3(delta, 1 / segLen) : [...tangent];
+    samples.push({ position: pos, tangent: tangentSample });
+    prevPos = pos;
+  }
+  const endForward =
+    samples.length > 0 ? [...samples[samples.length - 1].tangent] : [...tangent];
+  const endPose = {
+    position: samples.length ? [...samples[samples.length - 1].position] : [...startPose.position],
+    heading: safeHeading(endForward, startPose.heading || 0),
+    forward: endForward,
+  };
+  return { samples, endPose, totalLength };
+}
+
 function buildCheckerGeometry(tileCoords, cellSize, y = -0.01) {
   const even = { positions: [], normals: [] };
   const odd = { positions: [], normals: [] };
@@ -630,7 +731,7 @@ function buildCheckerGeometry(tileCoords, cellSize, y = -0.01) {
   return { even, odd };
 }
 
-function createStationGeometry(position, size = STATION_SIZE) {
+function createStationGeometry(position, size = DEFAULT_STATION_SIZE) {
   const { width, depth, height } = size;
   const hx = width / 2;
   const hz = depth / 2;
@@ -710,7 +811,6 @@ function sampleArcSegment(segment, startPose) {
   if (!sweepDeg) {
     return { error: "弧角需非零。" };
   }
-  const sweep = sweepDeg * DEG2RAD;
   const signedDir = params.direction >= 0 ? 1 : -1;
   const baseForward = normalizeOrFallback(
     startPose.forward || [
@@ -720,90 +820,92 @@ function sampleArcSegment(segment, startPose) {
     ],
     [1, 0, 0]
   );
-  let planeNormal;
-  if (mode === "free") {
-    planeNormal = normalizeOrFallback(
-      [
-        Number(params.planeNormal?.[0] ?? params.planeNx ?? 0),
-        Number(params.planeNormal?.[1] ?? params.planeNy ?? 1),
-        Number(params.planeNormal?.[2] ?? params.planeNz ?? 0),
-      ],
-      [0, 1, 0]
-    );
-  } else {
-    planeNormal = [0, 1, 0];
-  }
-  if (Math.abs(dotVec3(planeNormal, baseForward)) > 0.999) {
-    planeNormal = [0, 1, 0];
-  }
-  const tangentInPlane = normalizeOrFallback(
-    subVec3(baseForward, scaleVec3(planeNormal, dotVec3(baseForward, planeNormal))),
+  let planeNormal =
+    mode === "free"
+      ? normalizeOrFallback(
+          [
+            Number(params.planeNormal?.[0]) || 0,
+            Number(params.planeNormal?.[1]) || 1,
+            Number(params.planeNormal?.[2]) || 0,
+          ],
+          [0, 1, 0]
+        )
+      : [0, 1, 0];
+  let entryTangent = normalizeOrFallback(
+    projectVectorOntoPlane(baseForward, planeNormal),
     baseForward
   );
+  if (lengthVec3(entryTangent) === 0) {
+    entryTangent = orthogonalVector(planeNormal);
+  }
   const bankRad = (Number(params.bank) || 0) * DEG2RAD;
   if (bankRad !== 0) {
-    planeNormal = rotateVectorAroundAxis(planeNormal, tangentInPlane, bankRad);
-  }
-  planeNormal = normalizeOrFallback(planeNormal, [0, 1, 0]);
-  const radialRaw =
-    signedDir === 1
-      ? crossVec3(planeNormal, tangentInPlane)
-      : crossVec3(tangentInPlane, planeNormal);
-  const radialUnit = normalizeOrFallback(
-    radialRaw,
-    crossVec3(planeNormal, tangentInPlane)
-  );
-  const center = addVec3(startPose.position, scaleVec3(radialUnit, radius));
-  const planeUnitU = normalizeOrFallback(
-    subVec3(startPose.position, center),
-    radialUnit
-  );
-  let planeUnitV = normalizeOrFallback(
-    crossVec3(planeNormal, planeUnitU),
-    tangentInPlane
-  );
-  if (dotVec3(planeUnitV, tangentInPlane) < 0) {
-    planeUnitV = scaleVec3(planeUnitV, -1);
-  }
-  const arcLength = radius * sweep;
-  const steps = Math.max(1, Math.round(arcLength / SAMPLE_INTERVAL));
-  const samples = [];
-  let prevPos = [...startPose.position];
-  let totalLength = 0;
-  const rise = Number(params.rise) || 0;
-  for (let i = 1; i <= steps; i++) {
-    const progress = i / steps;
-    const theta = signedDir * sweep * progress;
-    let pos = addVec3(
-      center,
-      addVec3(
-        scaleVec3(planeUnitU, radius * Math.cos(theta)),
-        scaleVec3(planeUnitV, radius * Math.sin(theta))
-      )
+    planeNormal = rotateVectorAroundAxis(planeNormal, entryTangent, bankRad);
+    planeNormal = normalizeOrFallback(planeNormal, [0, 1, 0]);
+    entryTangent = normalizeOrFallback(
+      projectVectorOntoPlane(baseForward, planeNormal),
+      entryTangent
     );
-    if (rise !== 0) {
-      const riseDir = mode === "projected" ? [0, 1, 0] : planeNormal;
-      pos = addVec3(pos, scaleVec3(riseDir, rise * progress));
+    if (lengthVec3(entryTangent) === 0) {
+      entryTangent = orthogonalVector(planeNormal);
     }
-    const delta = subVec3(pos, prevPos);
-    const segLen = lengthVec3(delta);
-    totalLength += segLen;
-    const tangent = segLen > 0 ? scaleVec3(delta, 1 / segLen) : [...tangentInPlane];
-    samples.push({ position: pos, tangent });
-    prevPos = pos;
   }
-  if (!samples.length) {
+  const samples = [];
+  let totalLength = 0;
+  let workingPose = {
+    position: [...startPose.position],
+    heading: startPose.heading || 0,
+    forward: [...baseForward],
+  };
+  const alignAngle = angleBetweenVectors(baseForward, entryTangent);
+  if (alignAngle > 1e-3) {
+    let axis = normalizeVec3(crossVec3(baseForward, entryTangent));
+    if (lengthVec3(axis) < 1e-4) {
+      axis = orthogonalVector(baseForward);
+    }
+    const connectorSweepDeg = alignAngle * RAD2DEG;
+    let connector = buildArcFromConfig(workingPose, {
+      planeNormal: axis,
+      radius,
+      sweepDeg: connectorSweepDeg,
+      direction: 1,
+      rise: 0,
+    });
+    if (angleBetweenVectors(connector.endPose.forward, entryTangent) > 1e-2) {
+      connector = buildArcFromConfig(workingPose, {
+        planeNormal: axis,
+        radius,
+        sweepDeg: connectorSweepDeg,
+        direction: -1,
+        rise: 0,
+      });
+    }
+    if (connector.samples.length) {
+      samples.push(...connector.samples);
+      totalLength += connector.totalLength;
+      workingPose = connector.endPose;
+    }
+  }
+  workingPose.forward = normalizeOrFallback(workingPose.forward || entryTangent, entryTangent);
+  workingPose.heading = safeHeading(workingPose.forward, workingPose.heading);
+  const riseAxis = mode === "projected" ? [0, 1, 0] : planeNormal;
+  const mainArc = buildArcFromConfig(workingPose, {
+    planeNormal,
+    radius,
+    sweepDeg,
+    direction: signedDir,
+    rise: Number(params.rise) || 0,
+    riseAxis,
+  });
+  if (!mainArc.samples.length) {
     return { error: "轨道段过短。" };
   }
-  const endForward = samples[samples.length - 1].tangent;
+  samples.push(...mainArc.samples);
+  totalLength += mainArc.totalLength;
   return {
     samples,
-    endPose: {
-      position: [...samples[samples.length - 1].position],
-      heading: Math.atan2(endForward[2], endForward[0]),
-      forward: [...endForward],
-    },
-    totalLength: totalLength,
+    endPose: mainArc.endPose,
+    totalLength,
   };
 }
 
@@ -1195,7 +1297,7 @@ class GameState {
     return this.hasTile(ix, iz);
   }
 
-  isRectangleInsidePark(center, size) {
+  isRectangleInsidePark(center, size = DEFAULT_STATION_SIZE) {
     const halfW = size.width / 2;
     const halfD = size.depth / 2;
     const corners = [
@@ -1243,8 +1345,8 @@ class GameState {
 
   findStationAt(point) {
     for (const station of this.stations) {
-      const halfW = (station.size?.width || STATION_SIZE.width) / 2;
-      const halfD = (station.size?.depth || STATION_SIZE.depth) / 2;
+      const halfW = (station.size?.width || DEFAULT_STATION_SIZE.width) / 2;
+      const halfD = (station.size?.depth || DEFAULT_STATION_SIZE.depth) / 2;
       if (
         Math.abs(point[0] - station.position[0]) <= halfW &&
         Math.abs(point[2] - station.position[2]) <= halfD
@@ -1268,8 +1370,8 @@ class GameState {
     return this.getCoasterByStationId(this.selectedStationId);
   }
 
-  addStation(position) {
-    if (!this.isRectangleInsidePark(position, STATION_SIZE)) {
+  addStation(position, size = DEFAULT_STATION_SIZE) {
+    if (!this.isRectangleInsidePark(position, size)) {
       return { error: "站台必须完全位于公园范围内。" };
     }
     if (!this.canAffordStation()) {
@@ -1280,8 +1382,8 @@ class GameState {
       id: stationId,
       label: `站台 ${this.stationCounter}`,
       position: [...position],
-      size: { ...STATION_SIZE },
-      topY: position[1] + STATION_SIZE.height,
+      size: { ...size },
+      topY: position[1] + size.height,
     };
     const coasterId = `Coaster-${++this.coasterCounter}`;
     const color = randomCoasterColor();
@@ -1462,6 +1564,7 @@ const cancelBtn = document.getElementById("cancelBtn");
 const selectionInfo = document.getElementById("selectionInfo");
 const trackForm = document.getElementById("trackForm");
 const stationName = document.getElementById("stationName");
+const stationLengthInput = document.getElementById("stationLengthInput");
 const segmentTypeSelect = document.getElementById("segmentType");
 const arcModeSelect = document.getElementById("arcMode");
 const arcRadiusParam = document.getElementById("arcRadiusParam");
@@ -1495,6 +1598,37 @@ const parkSizeLabel = document.getElementById("parkSizeLabel");
 const buyTileBtn = document.getElementById("buyTileBtn");
 
 rebuildParkMeshes();
+
+function clampStationLength(value) {
+  if (!Number.isFinite(value)) return DEFAULT_STATION_SIZE.depth;
+  return clamp(value, MIN_STATION_LENGTH, MAX_STATION_LENGTH);
+}
+
+function formatStationLength(value) {
+  return Number.isInteger(value) ? `${value}` : value.toFixed(1).replace(/\.0$/, "");
+}
+
+function readStationSizeFromInput() {
+  const raw = stationLengthInput ? Number(stationLengthInput.value) : DEFAULT_STATION_SIZE.depth;
+  const length = clampStationLength(Number.isNaN(raw) ? DEFAULT_STATION_SIZE.depth : raw);
+  if (stationLengthInput) {
+    stationLengthInput.value = formatStationLength(length);
+  }
+  return {
+    width: DEFAULT_STATION_SIZE.width,
+    depth: length,
+    height: DEFAULT_STATION_SIZE.height,
+  };
+}
+
+if (stationLengthInput) {
+  stationLengthInput.value = formatStationLength(
+    clampStationLength(Number(stationLengthInput.value) || DEFAULT_STATION_SIZE.depth)
+  );
+  stationLengthInput.addEventListener("change", () => {
+    readStationSizeFromInput();
+  });
+}
 
 function updateHud() {
   moneyLabel.textContent = `¥${game.money.toLocaleString("zh-CN")}`;
@@ -1869,11 +2003,12 @@ function handleCanvasClick(event) {
 
   if (game.mode === "placingStation") {
     const snapped = snapToGrid(point, game.cellSize);
-    if (!game.isRectangleInsidePark(snapped, STATION_SIZE)) {
+    const stationSize = readStationSizeFromInput();
+    if (!game.isRectangleInsidePark(snapped, stationSize)) {
       selectionInfo.textContent = "站台需完全处于已购买的格子内。";
       return;
     }
-    const result = game.addStation(snapped);
+    const result = game.addStation(snapped, stationSize);
     if (result.error) {
       selectionInfo.textContent = result.error;
       updateHud();
