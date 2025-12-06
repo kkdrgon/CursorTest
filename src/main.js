@@ -58,6 +58,12 @@ function normalizeVec3(v) {
   return [v[0] / len, v[1] / len, v[2] / len];
 }
 
+function normalizeOrFallback(v, fallback = [0, 0, 0]) {
+  const len = lengthVec3(v);
+  if (len === 0) return [...fallback];
+  return [v[0] / len, v[1] / len, v[2] / len];
+}
+
 function crossVec3(a, b) {
   return [
     a[1] * b[2] - a[2] * b[1],
