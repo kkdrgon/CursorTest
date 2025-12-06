@@ -72,6 +72,23 @@ function crossVec3(a, b) {
   ];
 }
 
+function dotVec3(a, b) {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function rotateVectorAroundAxis(v, axis, angle) {
+  const u = normalizeOrFallback(axis, [1, 0, 0]);
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const dot = dotVec3(u, v);
+  const cross = crossVec3(u, v);
+  return [
+    v[0] * cos + cross[0] * sin + u[0] * dot * (1 - cos),
+    v[1] * cos + cross[1] * sin + u[1] * dot * (1 - cos),
+    v[2] * cos + cross[2] * sin + u[2] * dot * (1 - cos),
+  ];
+}
+
 function mat4Identity() {
   return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 }
@@ -275,9 +292,22 @@ function wrapAngle(angle) {
 }
 
 function localToWorldVector(pose, local) {
-  const forward = [Math.cos(pose.heading || 0), 0, Math.sin(pose.heading || 0)];
-  const right = normalizeVec3([-forward[2], 0, forward[0]]);
-  const up = [0, 1, 0];
+  const forward = normalizeOrFallback(
+    pose.forward || [
+      Math.cos(pose.heading || 0),
+      0,
+      Math.sin(pose.heading || 0),
+    ],
+    [1, 0, 0]
+  );
+  let up = [0, 1, 0];
+  let right = crossVec3(up, forward);
+  if (lengthVec3(right) < 1e-5) {
+    up = [0, 0, 1];
+    right = crossVec3(up, forward);
+  }
+  right = normalizeVec3(right);
+  up = normalizeVec3(crossVec3(forward, right));
   return [
     pose.position[0] +
       forward[0] * (local[0] || 0) +
@@ -652,79 +682,6 @@ function createStationGeometry(position, size = STATION_SIZE) {
   return { positions, normals };
 }
 
-function sampleStraightModule(params, startPose) {
-  const length = Math.max(0.2, Number(params.length) || 0);
-  const rise = Number(params.rise) || 0;
-  const forward = [Math.cos(startPose.heading), 0, Math.sin(startPose.heading)];
-  const samples = [];
-  let prevPos = [...startPose.position];
-  let progressed = 0;
-  while (progressed < length - 1e-4) {
-    const step = Math.min(SAMPLE_INTERVAL, length - progressed);
-    progressed += step;
-    const t = length === 0 ? 0 : progressed / length;
-    const pos = [
-      startPose.position[0] + forward[0] * progressed,
-      startPose.position[1] + rise * t,
-      startPose.position[2] + forward[2] * progressed,
-    ];
-    const tangent = normalizeOrFallback(subVec3(pos, prevPos), forward);
-    samples.push({ position: pos, tangent });
-    prevPos = pos;
-  }
-  return {
-    samples,
-    endPose: { position: prevPos, heading: startPose.heading },
-    totalLength: length,
-  };
-}
-
-function sampleArcModule(params, startPose) {
-  const radius = Math.max(0.5, Number(params.radius) || 0);
-  const angleDeg = Number(params.angle) || 0;
-  const signedDir = params.direction >= 0 ? 1 : -1;
-  const angle = Math.abs(angleDeg) * DEG2RAD;
-  const rise = Number(params.rise) || 0;
-  const startPoint = startPose.position;
-  const tangent = [Math.cos(startPose.heading), 0, Math.sin(startPose.heading)];
-  const perpendicular =
-    signedDir === 1
-      ? [-tangent[2], 0, tangent[0]]
-      : [tangent[2], 0, -tangent[0]];
-  const center = [
-    startPoint[0] + perpendicular[0] * radius,
-    startPoint[1],
-    startPoint[2] + perpendicular[2] * radius,
-  ];
-  const startAngle = Math.atan2(
-    startPoint[2] - center[2],
-    startPoint[0] - center[0]
-  );
-  const arcLength = radius * angle;
-  const steps = Math.max(1, Math.round(arcLength / SAMPLE_INTERVAL));
-  const samples = [];
-  let prevPos = [...startPoint];
-  for (let i = 1; i <= steps; i++) {
-    const theta = startAngle + signedDir * angle * (i / steps);
-    const pos = [
-      center[0] + radius * Math.cos(theta),
-      startPoint[1] + rise * (i / steps),
-      center[2] + radius * Math.sin(theta),
-    ];
-    const tangentVec = normalizeOrFallback(subVec3(pos, prevPos), tangent);
-    samples.push({ position: pos, tangent: tangentVec });
-    prevPos = pos;
-  }
-  return {
-    samples,
-    endPose: {
-      position: prevPos,
-      heading: wrapAngle(startPose.heading + signedDir * angle),
-    },
-    totalLength: arcLength,
-  };
-}
-
 function cubicBezier(p0, p1, p2, p3, t) {
   const mt = 1 - t;
   const mt2 = mt * mt;
@@ -745,23 +702,129 @@ function cubicBezier(p0, p1, p2, p3, t) {
   ];
 }
 
-function sampleBezierModule(params, startPose) {
+function sampleArcSegment(segment, startPose) {
+  const params = segment.params || {};
+  const mode = params.mode || "projected";
+  const radius = Math.max(0.5, Math.abs(Number(params.radius) || 0));
+  const sweepDeg = Math.abs(Number(params.sweep) || 0);
+  if (!sweepDeg) {
+    return { error: "弧角需非零。" };
+  }
+  const sweep = sweepDeg * DEG2RAD;
+  const signedDir = params.direction >= 0 ? 1 : -1;
+  const baseForward = normalizeOrFallback(
+    startPose.forward || [
+      Math.cos(startPose.heading || 0),
+      0,
+      Math.sin(startPose.heading || 0),
+    ],
+    [1, 0, 0]
+  );
+  let planeNormal;
+  if (mode === "free") {
+    planeNormal = normalizeOrFallback(
+      [
+        Number(params.planeNormal?.[0] ?? params.planeNx ?? 0),
+        Number(params.planeNormal?.[1] ?? params.planeNy ?? 1),
+        Number(params.planeNormal?.[2] ?? params.planeNz ?? 0),
+      ],
+      [0, 1, 0]
+    );
+  } else {
+    planeNormal = [0, 1, 0];
+  }
+  if (Math.abs(dotVec3(planeNormal, baseForward)) > 0.999) {
+    planeNormal = [0, 1, 0];
+  }
+  const tangentInPlane = normalizeOrFallback(
+    subVec3(baseForward, scaleVec3(planeNormal, dotVec3(baseForward, planeNormal))),
+    baseForward
+  );
+  const bankRad = (Number(params.bank) || 0) * DEG2RAD;
+  if (bankRad !== 0) {
+    planeNormal = rotateVectorAroundAxis(planeNormal, tangentInPlane, bankRad);
+  }
+  planeNormal = normalizeOrFallback(planeNormal, [0, 1, 0]);
+  const radialRaw =
+    signedDir === 1
+      ? crossVec3(planeNormal, tangentInPlane)
+      : crossVec3(tangentInPlane, planeNormal);
+  const radialUnit = normalizeOrFallback(
+    radialRaw,
+    crossVec3(planeNormal, tangentInPlane)
+  );
+  const center = addVec3(startPose.position, scaleVec3(radialUnit, radius));
+  const planeUnitU = normalizeOrFallback(
+    subVec3(startPose.position, center),
+    radialUnit
+  );
+  let planeUnitV = normalizeOrFallback(
+    crossVec3(planeNormal, planeUnitU),
+    tangentInPlane
+  );
+  if (dotVec3(planeUnitV, tangentInPlane) < 0) {
+    planeUnitV = scaleVec3(planeUnitV, -1);
+  }
+  const arcLength = radius * sweep;
+  const steps = Math.max(1, Math.round(arcLength / SAMPLE_INTERVAL));
+  const samples = [];
+  let prevPos = [...startPose.position];
+  let totalLength = 0;
+  const rise = Number(params.rise) || 0;
+  for (let i = 1; i <= steps; i++) {
+    const progress = i / steps;
+    const theta = signedDir * sweep * progress;
+    let pos = addVec3(
+      center,
+      addVec3(
+        scaleVec3(planeUnitU, radius * Math.cos(theta)),
+        scaleVec3(planeUnitV, radius * Math.sin(theta))
+      )
+    );
+    if (rise !== 0) {
+      const riseDir = mode === "projected" ? [0, 1, 0] : planeNormal;
+      pos = addVec3(pos, scaleVec3(riseDir, rise * progress));
+    }
+    const delta = subVec3(pos, prevPos);
+    const segLen = lengthVec3(delta);
+    totalLength += segLen;
+    const tangent = segLen > 0 ? scaleVec3(delta, 1 / segLen) : [...tangentInPlane];
+    samples.push({ position: pos, tangent });
+    prevPos = pos;
+  }
+  if (!samples.length) {
+    return { error: "轨道段过短。" };
+  }
+  const endForward = samples[samples.length - 1].tangent;
+  return {
+    samples,
+    endPose: {
+      position: [...samples[samples.length - 1].position],
+      heading: Math.atan2(endForward[2], endForward[0]),
+      forward: [...endForward],
+    },
+    totalLength: totalLength,
+  };
+}
+
+function sampleBezierSegment(segment, startPose) {
+  const params = segment.params || {};
+  const p0 = [...startPose.position];
   const cp1 = [
-    Number(params.bz1x) || 5,
+    Number(params.bz1x) || 0,
     Number(params.bz1y) || 0,
     Number(params.bz1z) || 0,
   ];
   const cp2 = [
-    Number(params.bz2x) || 10,
+    Number(params.bz2x) || 0,
     Number(params.bz2y) || 0,
     Number(params.bz2z) || 0,
   ];
   const cp3 = [
-    Number(params.bz3x) || 15,
+    Number(params.bz3x) || 0,
     Number(params.bz3y) || 0,
     Number(params.bz3z) || 0,
   ];
-  const p0 = [...startPose.position];
   const p1 = localToWorldVector(startPose, cp1);
   const p2 = localToWorldVector(startPose, cp2);
   const p3 = localToWorldVector(startPose, cp3);
@@ -804,7 +867,7 @@ function sampleBezierModule(params, startPose) {
     travelled += segLen;
     prevPoint = currPoint;
   }
-  if (samples.length === 0) {
+  if (!samples.length) {
     const tangent = normalizeVec3(subVec3(p3, p0));
     samples.push({ position: [...p3], tangent });
     travelled = lengthVec3(subVec3(p3, p0));
@@ -817,23 +880,21 @@ function sampleBezierModule(params, startPose) {
     endPose: {
       position: [...samples[samples.length - 1].position],
       heading: wrapAngle(Math.atan2(endTangent[2], endTangent[0])),
+      forward: [...endTangent],
     },
     totalLength: travelled,
   };
 }
 
-function sampleModule(module, startPose) {
-  if (!module) return { error: "未选择轨道单元。" };
-  switch (module.type) {
-    case "straight":
-      return sampleStraightModule(module.params, startPose);
-    case "arc":
-      return sampleArcModule(module.params, startPose);
-    case "bezier":
-      return sampleBezierModule(module.params, startPose);
-    default:
-      return { error: "未知的轨道单元类型。" };
+function sampleSegment(segment, startPose) {
+  if (!segment) return { error: "未配置轨道段。" };
+  if (segment.type === "arc") {
+    return sampleArcSegment(segment, startPose);
   }
+  if (segment.type === "bezier") {
+    return sampleBezierSegment(segment, startPose);
+  }
+  return { error: "未知的轨道段类型。" };
 }
 
 function computeTangents(samples) {
@@ -1235,62 +1296,108 @@ class GameState {
           position[2],
         ],
         heading: 0,
+        forward: [1, 0, 0],
       },
-      modules: [],
+      segments: [],
       samples: [],
     };
-    ensureCoasterSamples(coaster);
+    this.rebuildCoasterSamples(coaster);
     this.money -= this.stationCost;
     this.stations.push(station);
     this.coasters.push(coaster);
     return { station, coaster };
   }
 
-  addModuleToTrack(module) {
+  addSegmentToTrack(segment) {
     const coaster = this.getSelectedCoaster();
     if (!coaster) {
       return { error: "请先选择站台。" };
     }
-    ensureCoasterSamples(coaster);
-    const result = sampleModule(module, coaster.cursorPose);
-    if (result.error) {
-      return result;
+    coaster.segments.push(segment);
+    const regen = this.rebuildCoasterSamples(coaster);
+    if (regen.error) {
+      coaster.segments.pop();
+      this.rebuildCoasterSamples(coaster);
+      return regen;
     }
-    if (!result.samples || result.samples.length === 0) {
-      return { error: "该轨道单元长度不足。" };
-    }
-    for (const sample of result.samples) {
-      if (!this.isPointInsidePark(sample.position)) {
-        return { error: "轨道超出公园范围，请先扩展公园。" };
-      }
-    }
-    const totalLength =
-      result.totalLength ||
-      result.samples.reduce((sum, sample, index) => {
-        if (index === 0) return sum;
-        return (
-          sum +
-          lengthVec3(
-            subVec3(sample.position, result.samples[index - 1].position)
-          )
-        );
-      }, 0);
-    const cost = Math.round(totalLength * this.segmentCostPerMeter);
+    const cost = Math.round(
+      Math.max(segment.length || 0, 0) * this.segmentCostPerMeter
+    );
     if (this.money < cost) {
+      coaster.segments.pop();
+      this.rebuildCoasterSamples(coaster);
       return { error: "资金不足，无法建造轨道。" };
     }
     this.money -= cost;
-    coaster.modules.push({
-      id: `Module-${++this.segmentCounter}`,
-      templateId: module.id,
-      name: module.name,
-      type: module.type,
-      params: { ...module.params },
-      length: totalLength,
-    });
-    coaster.samples = coaster.samples.concat(result.samples);
-    coaster.cursorPose = result.endPose;
     return { coaster, cost };
+  }
+
+  updateSegmentOnTrack(index, newSegment) {
+    const coaster = this.getSelectedCoaster();
+    if (!coaster) return { error: "请先选择站台。" };
+    if (!coaster.segments[index]) return { error: "无效的轨道段。" };
+    const backup = coaster.segments[index];
+    coaster.segments[index] = newSegment;
+    const regen = this.rebuildCoasterSamples(coaster);
+    if (regen.error) {
+      coaster.segments[index] = backup;
+      this.rebuildCoasterSamples(coaster);
+      return regen;
+    }
+    return { coaster };
+  }
+
+  removeSegmentFromTrack(index) {
+    const coaster = this.getSelectedCoaster();
+    if (!coaster) return { error: "请先选择站台。" };
+    if (!coaster.segments[index]) return { error: "无效的轨道段。" };
+    coaster.segments.splice(index, 1);
+    const regen = this.rebuildCoasterSamples(coaster);
+    if (regen.error) {
+      return regen;
+    }
+    return { coaster };
+  }
+
+  rebuildCoasterSamples(coaster) {
+    const station = this.getStationById(coaster.stationId);
+    if (!station) return { error: "站台不存在" };
+    let pose = {
+      position: [
+        station.position[0],
+        station.topY + TRACK_CLEARANCE,
+        station.position[2],
+      ],
+      heading: 0,
+      forward: [1, 0, 0],
+    };
+    const samples = [
+      {
+        position: [...pose.position],
+        tangent: [...pose.forward],
+      },
+    ];
+    for (const segment of coaster.segments) {
+      const result = sampleSegment(segment, pose);
+      if (result.error) {
+        return result;
+      }
+      for (const sample of result.samples) {
+        if (!this.isPointInsidePark(sample.position)) {
+          return { error: "轨道超出公园范围，请先扩展公园。" };
+        }
+      }
+      samples.push(...result.samples);
+      pose = {
+        position: [...result.endPose.position],
+        heading: result.endPose.heading,
+        forward: [...result.endPose.forward],
+      };
+      segment.length = result.totalLength;
+    }
+    coaster.samples = samples;
+    coaster.cursorPose = pose;
+    return { success: true };
   }
 }
 
@@ -1305,9 +1412,7 @@ const scene = {
 const game = new GameState();
 
 function rebuildCoasterMesh(coaster) {
-  if (!coaster || !coaster.samples || coaster.samples.length < 2) return;
-  const meshData = buildTrackMeshFromSamples(coaster.samples);
-  if (!meshData) return;
+  if (!coaster) return;
   const existingIndex = scene.tracks.findIndex(
     (t) => t.coasterId === coaster.id
   );
@@ -1315,6 +1420,9 @@ function rebuildCoasterMesh(coaster) {
     renderer.disposeMesh(scene.tracks[existingIndex].mesh);
     scene.tracks.splice(existingIndex, 1);
   }
+  if (!coaster.samples || coaster.samples.length < 2) return;
+  const meshData = buildTrackMeshFromSamples(coaster.samples);
+  if (!meshData) return;
   const mesh = renderer.createMesh(meshData);
   scene.tracks.push({
     id: `${coaster.id}-track`,
@@ -1354,39 +1462,34 @@ const cancelBtn = document.getElementById("cancelBtn");
 const selectionInfo = document.getElementById("selectionInfo");
 const trackForm = document.getElementById("trackForm");
 const stationName = document.getElementById("stationName");
-const moduleNameInput = document.getElementById("moduleName");
-const moduleTypeSelect = document.getElementById("moduleType");
-const straightLengthInput = document.getElementById("straightLength");
-const straightRiseInput = document.getElementById("straightRise");
-const arcRadiusInput = document.getElementById("arcRadius");
-const arcModuleAngleInput = document.getElementById("arcModuleAngle");
-const arcModuleDirectionInput = document.getElementById("arcModuleDirection");
-const arcRiseInput = document.getElementById("arcRise");
+const segmentTypeSelect = document.getElementById("segmentType");
+const arcModeSelect = document.getElementById("arcMode");
+const arcRadiusParam = document.getElementById("arcRadiusParam");
+const arcSweepParam = document.getElementById("arcSweepParam");
+const arcDirectionParam = document.getElementById("arcDirectionParam");
+const arcRiseParam = document.getElementById("arcRiseParam");
+const arcBankParam = document.getElementById("arcBankParam");
+const planeNxParam = document.getElementById("planeNx");
+const planeNyParam = document.getElementById("planeNy");
+const planeNzParam = document.getElementById("planeNz");
 const bezierInputs = {
-  bz1x: document.getElementById("bz1x"),
-  bz1y: document.getElementById("bz1y"),
-  bz1z: document.getElementById("bz1z"),
-  bz2x: document.getElementById("bz2x"),
-  bz2y: document.getElementById("bz2y"),
-  bz2z: document.getElementById("bz2z"),
-  bz3x: document.getElementById("bz3x"),
-  bz3y: document.getElementById("bz3y"),
-  bz3z: document.getElementById("bz3z"),
+  bz1x: document.getElementById("segBz1x"),
+  bz1y: document.getElementById("segBz1y"),
+  bz1z: document.getElementById("segBz1z"),
+  bz2x: document.getElementById("segBz2x"),
+  bz2y: document.getElementById("segBz2y"),
+  bz2z: document.getElementById("segBz2z"),
+  bz3x: document.getElementById("segBz3x"),
+  bz3y: document.getElementById("segBz3y"),
+  bz3z: document.getElementById("segBz3z"),
 };
-const moduleFieldGroups = {
-  straight: document.getElementById("straightFields"),
-  arc: document.getElementById("arcFields"),
-  bezier: document.getElementById("bezierFields"),
-};
-const saveModuleBtn = document.getElementById("saveModuleBtn");
-const resetModuleBtn = document.getElementById("resetModuleBtn");
-const loadModuleBtn = document.getElementById("loadModuleBtn");
-const moduleLibrarySelect = document.getElementById("moduleLibrarySelect");
-const addModuleBtn = document.getElementById("addModuleBtn");
-const moduleStackList = document.getElementById("moduleStack");
-const moduleEditor = document.getElementById("moduleEditor");
-const openModuleEditorBtn = document.getElementById("openModuleEditorBtn");
-const closeModuleEditorBtn = document.getElementById("closeModuleEditorBtn");
+const arcPlaneFields = document.getElementById("arcPlaneFields");
+const arcSegmentFields = document.getElementById("arcSegmentFields");
+const bezierSegmentFields = document.getElementById("bezierSegmentFields");
+const applySegmentBtn = document.getElementById("applySegmentBtn");
+const updateSegmentBtn = document.getElementById("updateSegmentBtn");
+const resetSegmentBtn = document.getElementById("resetSegmentBtn");
+const segmentListEl = document.getElementById("segmentList");
 const trackStatus = document.getElementById("trackStatus");
 const parkSizeLabel = document.getElementById("parkSizeLabel");
 const buyTileBtn = document.getElementById("buyTileBtn");
@@ -1422,49 +1525,26 @@ function setMode(mode) {
       selectionInfo.textContent = "点击地面购买相邻格子以扩展公园";
     } else {
       selectionInfo.textContent =
-        "点击站台进入建造模式，然后选择轨道单元搭建";
+        "点击站台进入建造模式，逐段配置曲线轨道";
     }
   }
   updateHud();
-}
-
-function renderModuleStack() {
-  if (!moduleStackList) return;
-  moduleStackList.innerHTML = "";
-  const coaster = game.getSelectedCoaster();
-  if (!coaster) {
-    const li = document.createElement("li");
-    li.textContent = "未选择站台";
-    moduleStackList.appendChild(li);
-    return;
-  }
-  if (!coaster.modules || coaster.modules.length === 0) {
-    const li = document.createElement("li");
-    li.textContent = "暂无轨道段";
-    moduleStackList.appendChild(li);
-    return;
-  }
-  coaster.modules.forEach((module, index) => {
-    const li = document.createElement("li");
-    li.textContent = `${index + 1}. ${module.name} (${module.length.toFixed(
-      1
-    )} m)`;
-    moduleStackList.appendChild(li);
-  });
 }
 
 function selectStation(station) {
   if (!station) {
     game.selectedStationId = null;
     setMode("idle");
-    renderModuleStack();
+    clearSegmentForm();
+    renderSegmentList();
     return;
   }
   game.selectedStationId = station.id;
   stationName.textContent = station.label;
   trackStatus.textContent = "";
   setMode("building");
-  renderModuleStack();
+  clearSegmentForm();
+  renderSegmentList();
 }
 
 function showTrackStatus(message, isError = false) {
@@ -1487,253 +1567,234 @@ cancelBtn.addEventListener("click", () => {
   setMode("idle");
 });
 
-moduleTypeSelect.addEventListener("change", updateModuleFieldVisibility);
+segmentTypeSelect.addEventListener("change", updateSegmentFieldVisibility);
+arcModeSelect.addEventListener("change", updateArcPlaneVisibility);
 
-saveModuleBtn.addEventListener("click", (event) => {
+applySegmentBtn.addEventListener("click", (event) => {
   event.preventDefault();
-  const payload = readModuleForm();
+  const payload = readSegmentForm();
   if (!payload) return;
-  upsertModuleDefinition(payload, editingModuleId);
-  populateModuleSelect(payload.id);
-  editingModuleId = payload.id;
-  showTrackStatus(`单元“${payload.name}”已保存`);
-});
-
-resetModuleBtn.addEventListener("click", (event) => {
-  event.preventDefault();
-  resetModuleForm();
-  showTrackStatus("已清空单元编辑表单");
-});
-
-loadModuleBtn.addEventListener("click", (event) => {
-  event.preventDefault();
-  const moduleId = moduleLibrarySelect.value;
-  const template = moduleLibrary.find((m) => m.id === moduleId);
-  if (!template) {
-    showTrackStatus("请选择要载入的单元", true);
-    return;
-  }
-  loadModuleToForm(template);
-  showTrackStatus(`已载入单元“${template.name}”`);
-});
-
-openModuleEditorBtn.addEventListener("click", (event) => {
-  event.preventDefault();
-  moduleEditor.classList.remove("hidden");
-});
-
-closeModuleEditorBtn.addEventListener("click", () => {
-  moduleEditor.classList.add("hidden");
-});
-
-moduleEditor.addEventListener("click", (event) => {
-  if (event.target === moduleEditor) {
-    moduleEditor.classList.add("hidden");
-  }
-});
-
-addModuleBtn.addEventListener("click", (event) => {
-  event.preventDefault();
-  const moduleId = moduleLibrarySelect.value;
-  const template = moduleLibrary.find((m) => m.id === moduleId);
-  if (!template) {
-    showTrackStatus("请选择可用的轨道单元", true);
-    return;
-  }
-  const result = game.addModuleToTrack(template);
+  const result = game.addSegmentToTrack(payload);
   if (result.error) {
     showTrackStatus(result.error, true);
     return;
   }
   rebuildCoasterMesh(result.coaster);
-  renderModuleStack();
-  showTrackStatus(`添加“${template.name}”成功，花费 ¥${result.cost}`);
+  renderSegmentList();
+  showTrackStatus(`添加新段成功，花费 ¥${result.cost}`);
   updateHud();
+  clearSegmentForm();
 });
 
-function updateModuleFieldVisibility() {
-  Object.values(moduleFieldGroups).forEach((el) =>
-    el.classList.add("hidden")
-  );
-  const active = moduleFieldGroups[moduleTypeSelect.value];
-  if (active) active.classList.remove("hidden");
+updateSegmentBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  if (editingSegmentIndex === null) return;
+  const payload = readSegmentForm();
+  if (!payload) return;
+  const result = game.updateSegmentOnTrack(editingSegmentIndex, payload);
+  if (result.error) {
+    showTrackStatus(result.error, true);
+    return;
+  }
+  rebuildCoasterMesh(result.coaster);
+  renderSegmentList();
+  showTrackStatus("轨道段已更新");
+  updateHud();
+  clearSegmentForm();
+});
+
+resetSegmentBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  clearSegmentForm();
+  showTrackStatus("已重置段落表单");
+});
+
+segmentListEl.addEventListener("click", (event) => {
+  const action = event.target.dataset.action;
+  if (!action) return;
+  const index = Number(event.target.dataset.index);
+  if (Number.isNaN(index)) return;
+  if (action === "edit") {
+    loadSegmentToForm(index);
+  } else if (action === "delete") {
+    const result = game.removeSegmentFromTrack(index);
+    if (result.error) {
+      showTrackStatus(result.error, true);
+      return;
+    }
+    rebuildCoasterMesh(result.coaster);
+    renderSegmentList();
+    showTrackStatus("已删除该段");
+    updateHud();
+    if (editingSegmentIndex === index) {
+      clearSegmentForm();
+    }
+  }
+});
+
+let editingSegmentIndex = null;
+
+function updateSegmentFieldVisibility() {
+  if (segmentTypeSelect.value === "arc") {
+    arcSegmentFields.classList.remove("hidden");
+    bezierSegmentFields.classList.add("hidden");
+  } else {
+    arcSegmentFields.classList.add("hidden");
+    bezierSegmentFields.classList.remove("hidden");
+  }
 }
 
-function resetModuleForm() {
-  editingModuleId = null;
-  moduleNameInput.value = "";
-  moduleTypeSelect.value = "straight";
-  straightLengthInput.value = 10;
-  straightRiseInput.value = 0;
-  arcRadiusInput.value = 12;
-  arcModuleAngleInput.value = 45;
-  arcModuleDirectionInput.value = "1";
-  arcRiseInput.value = 0;
+function updateArcPlaneVisibility() {
+  if (arcModeSelect.value === "free") {
+    arcPlaneFields.classList.remove("hidden");
+  } else {
+    arcPlaneFields.classList.add("hidden");
+  }
+}
+
+function clearSegmentForm() {
+  editingSegmentIndex = null;
+  segmentTypeSelect.value = "arc";
+  arcModeSelect.value = "projected";
+  arcRadiusParam.value = 12;
+  arcSweepParam.value = 60;
+  arcDirectionParam.value = "1";
+  arcRiseParam.value = 0;
+  arcBankParam.value = 0;
+  planeNxParam.value = 0;
+  planeNyParam.value = 1;
+  planeNzParam.value = 0;
   bezierInputs.bz1x.value = 5;
   bezierInputs.bz1y.value = 0;
-  bezierInputs.bz1z.value = 3;
+  bezierInputs.bz1z.value = 2;
   bezierInputs.bz2x.value = 10;
   bezierInputs.bz2y.value = 0;
-  bezierInputs.bz2z.value = -3;
+  bezierInputs.bz2z.value = -2;
   bezierInputs.bz3x.value = 15;
   bezierInputs.bz3y.value = 0;
   bezierInputs.bz3z.value = 0;
-  updateModuleFieldVisibility();
+  updateSegmentFieldVisibility();
+  updateArcPlaneVisibility();
+  updateSegmentBtn.classList.add("hidden");
+  applySegmentBtn.classList.remove("hidden");
 }
 
-const moduleLibrary = [];
-let moduleCounter = 0;
-let editingModuleId = null;
-
-const DEFAULT_MODULES = [
-  { name: "直线 8m", type: "straight", params: { length: 8, rise: 0 } },
-  {
-    name: "圆弧 45°",
-    type: "arc",
-    params: { radius: 12, angle: 45, direction: 1, rise: 0 },
-  },
-  {
-    name: "S 形贝塞尔",
-    type: "bezier",
-    params: {
-      bz1x: 5,
-      bz1y: 0,
-      bz1z: 3,
-      bz2x: 10,
-      bz2y: 0,
-      bz2z: -3,
-      bz3x: 15,
-      bz3y: 0,
-      bz3z: 0,
-    },
-  },
-];
-
-function seedDefaultModules() {
-  if (moduleLibrary.length > 0) return;
-  DEFAULT_MODULES.forEach((def) => {
-    upsertModuleDefinition(def);
-  });
-}
-
-function populateModuleSelect(selectId) {
-  moduleLibrarySelect.innerHTML = "";
-  if (!moduleLibrary.length) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "暂无单元";
-    moduleLibrarySelect.appendChild(option);
-    moduleLibrarySelect.disabled = true;
-    return;
-  }
-  moduleLibrarySelect.disabled = false;
-  moduleLibrary.forEach((module) => {
-    const option = document.createElement("option");
-    option.value = module.id;
-    option.textContent = module.name;
-    moduleLibrarySelect.appendChild(option);
-  });
-  moduleLibrarySelect.value =
-    selectId || moduleLibrarySelect.value || moduleLibrary[0].id;
-}
-
-function readModuleForm() {
-  const name = moduleNameInput.value.trim();
-  if (!name) {
-    showTrackStatus("请输入单元名称", true);
-    return null;
-  }
-  const type = moduleTypeSelect.value;
-  let params = {};
-  if (type === "straight") {
-    const length = Number(straightLengthInput.value);
-    const rise = Number(straightRiseInput.value);
-    if (isNaN(length) || length <= 0) {
-      showTrackStatus("直线长度需为正数", true);
-      return null;
-    }
-    params = { length, rise: isNaN(rise) ? 0 : rise };
-  } else if (type === "arc") {
-    const radius = Number(arcRadiusInput.value);
-    const angle = Number(arcModuleAngleInput.value);
-    const rise = Number(arcRiseInput.value);
+function readSegmentForm() {
+  const type = segmentTypeSelect.value;
+  if (type === "arc") {
+    const radius = Number(arcRadiusParam.value);
+    const sweep = Number(arcSweepParam.value);
     if (isNaN(radius) || radius <= 0) {
-      showTrackStatus("圆弧半径需大于0", true);
+      showTrackStatus("圆弧半径需大于 0", true);
       return null;
     }
-    if (isNaN(angle) || angle === 0) {
+    if (isNaN(sweep) || sweep === 0) {
       showTrackStatus("圆弧弧角需非零", true);
       return null;
     }
-    params = {
-      radius,
-      angle,
-      direction: Number(arcModuleDirectionInput.value) >= 0 ? 1 : -1,
-      rise: isNaN(rise) ? 0 : rise,
+    return {
+      type: "arc",
+      params: {
+        mode: arcModeSelect.value,
+        radius,
+        sweep,
+        direction: Number(arcDirectionParam.value) >= 0 ? 1 : -1,
+        rise: Number(arcRiseParam.value) || 0,
+        bank: Number(arcBankParam.value) || 0,
+        planeNormal: [
+          Number(planeNxParam.value) || 0,
+          Number(planeNyParam.value) || 1,
+          Number(planeNzParam.value) || 0,
+        ],
+      },
     };
-  } else if (type === "bezier") {
-    params = Object.fromEntries(
-      Object.entries(bezierInputs).map(([key, input]) => [
-        key,
-        Number(input.value) || 0,
-      ])
-    );
-  } else {
-    showTrackStatus("未知的单元类型", true);
-    return null;
   }
-  const id = editingModuleId || `module-${++moduleCounter}`;
-  return { id, name, type, params };
+  const params = Object.fromEntries(
+    Object.entries(bezierInputs).map(([key, input]) => [
+      key,
+      Number(input.value) || 0,
+    ])
+  );
+  return { type: "bezier", params };
 }
 
-function upsertModuleDefinition(definition, existingId) {
-  if (existingId) {
-    const module = moduleLibrary.find((m) => m.id === existingId);
-    if (module) {
-      module.name = definition.name;
-      module.type = definition.type;
-      module.params = { ...definition.params };
-      definition.id = module.id;
-      return module;
-    }
+function describeSegment(segment, index) {
+  const lengthInfo =
+    segment.length != null ? `${segment.length.toFixed(1)}m` : "--";
+  if (segment.type === "arc") {
+    const modeLabel =
+      segment.params.mode === "projected" ? "平面" : "空间";
+    return `${index + 1}. 圆弧(${modeLabel}, ${segment.params.radius}m, ${
+      segment.params.sweep
+    }°) - ${lengthInfo}`;
   }
-  if (!definition.id) {
-    definition.id = `module-${++moduleCounter}`;
+  return `${index + 1}. 贝塞尔 - ${lengthInfo}`;
+}
+
+function renderSegmentList() {
+  if (!segmentListEl) return;
+  segmentListEl.innerHTML = "";
+  const coaster = game.getSelectedCoaster();
+  if (!coaster || !coaster.segments.length) {
+    const li = document.createElement("li");
+    li.textContent = coaster ? "暂无轨道段" : "未选择站台";
+    segmentListEl.appendChild(li);
+    return;
   }
-  moduleLibrary.push({
-    id: definition.id,
-    name: definition.name,
-    type: definition.type,
-    params: { ...definition.params },
+  coaster.segments.forEach((segment, index) => {
+    const li = document.createElement("li");
+    const label = document.createElement("span");
+    label.textContent = describeSegment(segment, index);
+    const actions = document.createElement("div");
+    actions.className = "segment-actions";
+    const editBtn = document.createElement("button");
+    editBtn.dataset.action = "edit";
+    editBtn.dataset.index = String(index);
+    editBtn.textContent = "编辑";
+    const deleteBtn = document.createElement("button");
+    deleteBtn.dataset.action = "delete";
+    deleteBtn.dataset.index = String(index);
+    deleteBtn.className = "ghost";
+    deleteBtn.textContent = "删除";
+    actions.appendChild(editBtn);
+    actions.appendChild(deleteBtn);
+    li.appendChild(label);
+    li.appendChild(actions);
+    segmentListEl.appendChild(li);
   });
-  return definition;
 }
 
-function loadModuleToForm(module) {
-  editingModuleId = module.id;
-  moduleNameInput.value = module.name;
-  moduleTypeSelect.value = module.type;
-  updateModuleFieldVisibility();
-  if (module.type === "straight") {
-    straightLengthInput.value = module.params.length ?? 10;
-    straightRiseInput.value = module.params.rise ?? 0;
-  } else if (module.type === "arc") {
-    arcRadiusInput.value = module.params.radius ?? 10;
-    arcModuleAngleInput.value = module.params.angle ?? 45;
-    arcModuleDirectionInput.value =
-      module.params.direction >= 0 ? "1" : "-1";
-    arcRiseInput.value = module.params.rise ?? 0;
-  } else if (module.type === "bezier") {
+function loadSegmentToForm(index) {
+  const coaster = game.getSelectedCoaster();
+  if (!coaster) return;
+  const segment = coaster.segments[index];
+  if (!segment) return;
+  editingSegmentIndex = index;
+  if (segment.type === "arc") {
+    segmentTypeSelect.value = "arc";
+    arcModeSelect.value = segment.params.mode || "projected";
+    arcRadiusParam.value = segment.params.radius ?? 10;
+    arcSweepParam.value = segment.params.sweep ?? 45;
+    arcDirectionParam.value = (segment.params.direction ?? 1).toString();
+    arcRiseParam.value = segment.params.rise ?? 0;
+    arcBankParam.value = segment.params.bank ?? 0;
+    planeNxParam.value = segment.params.planeNormal?.[0] ?? 0;
+    planeNyParam.value = segment.params.planeNormal?.[1] ?? 1;
+    planeNzParam.value = segment.params.planeNormal?.[2] ?? 0;
+  } else if (segment.type === "bezier") {
+    segmentTypeSelect.value = "bezier";
     Object.entries(bezierInputs).forEach(([key, input]) => {
-      input.value = module.params[key] ?? 0;
+      input.value = segment.params[key] ?? 0;
     });
   }
+  updateSegmentFieldVisibility();
+  updateArcPlaneVisibility();
+  applySegmentBtn.classList.add("hidden");
+  updateSegmentBtn.classList.remove("hidden");
 }
 
-resetModuleForm();
-seedDefaultModules();
-populateModuleSelect();
-renderModuleStack();
+clearSegmentForm();
+renderSegmentList();
 
 /* ---------- 交互控制 ---------- */
 let pointerTracking = {
