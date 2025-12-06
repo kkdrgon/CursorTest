@@ -274,6 +274,26 @@ function wrapAngle(angle) {
   return ((angle % twoPi) + twoPi) % twoPi;
 }
 
+function localToWorldVector(pose, local) {
+  const forward = [Math.cos(pose.heading || 0), 0, Math.sin(pose.heading || 0)];
+  const right = normalizeVec3([-forward[2], 0, forward[0]]);
+  const up = [0, 1, 0];
+  return [
+    pose.position[0] +
+      forward[0] * (local[0] || 0) +
+      up[0] * (local[1] || 0) +
+      right[0] * (local[2] || 0),
+    pose.position[1] +
+      forward[1] * (local[0] || 0) +
+      up[1] * (local[1] || 0) +
+      right[1] * (local[2] || 0),
+    pose.position[2] +
+      forward[2] * (local[0] || 0) +
+      up[2] * (local[1] || 0) +
+      right[2] * (local[2] || 0),
+  ];
+}
+
 function hsvToRgb(h, s, v) {
   const i = Math.floor(h * 6);
   const f = h * 6 - i;
