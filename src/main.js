@@ -852,6 +852,7 @@ function sampleArcSegment(segment, startPose) {
   }
   const samples = [];
   let totalLength = 0;
+  let connectorLength = 0;
   let workingPose = {
     position: [...startPose.position],
     heading: startPose.heading || 0,
@@ -884,6 +885,7 @@ function sampleArcSegment(segment, startPose) {
       samples.push(...connector.samples);
       totalLength += connector.totalLength;
       workingPose = connector.endPose;
+      connectorLength = connector.totalLength;
     }
   }
   workingPose.forward = normalizeOrFallback(workingPose.forward || entryTangent, entryTangent);
@@ -906,6 +908,7 @@ function sampleArcSegment(segment, startPose) {
     samples,
     endPose: mainArc.endPose,
     totalLength,
+    meta: { connectorLength },
   };
 }
 
@@ -985,6 +988,7 @@ function sampleBezierSegment(segment, startPose) {
       forward: [...endTangent],
     },
     totalLength: travelled,
+    meta: { connectorLength: 0 },
   };
 }
 
@@ -1431,7 +1435,8 @@ class GameState {
       return { error: "资金不足，无法建造轨道。" };
     }
     this.money -= cost;
-    return { coaster, cost };
+    segment.autoConnectorLength = regen.lastSegmentMeta?.connectorLength || 0;
+    return { coaster, cost, segmentMeta: regen.lastSegmentMeta };
   }
 
   updateSegmentOnTrack(index, newSegment) {
@@ -1440,13 +1445,15 @@ class GameState {
     if (!coaster.segments[index]) return { error: "无效的轨道段。" };
     const backup = coaster.segments[index];
     coaster.segments[index] = newSegment;
-    const regen = this.rebuildCoasterSamples(coaster);
+    const regen = this.rebuildCoasterSamples(coaster, index);
     if (regen.error) {
       coaster.segments[index] = backup;
       this.rebuildCoasterSamples(coaster);
       return regen;
     }
-    return { coaster };
+    coaster.segments[index].autoConnectorLength =
+      regen.lastSegmentMeta?.connectorLength || 0;
+    return { coaster, segmentMeta: regen.lastSegmentMeta };
   }
 
   removeSegmentFromTrack(index) {
@@ -1461,7 +1468,7 @@ class GameState {
     return { coaster };
   }
 
-  rebuildCoasterSamples(coaster) {
+  rebuildCoasterSamples(coaster, focusIndex = null) {
     const station = this.getStationById(coaster.stationId);
     if (!station) return { error: "站台不存在" };
     let pose = {
@@ -1479,7 +1486,9 @@ class GameState {
         tangent: [...pose.forward],
       },
     ];
-    for (const segment of coaster.segments) {
+    let lastSegmentMeta = null;
+    for (let i = 0; i < coaster.segments.length; i++) {
+      const segment = coaster.segments[i];
       const result = sampleSegment(segment, pose);
       if (result.error) {
         return result;
@@ -1496,10 +1505,14 @@ class GameState {
         forward: [...result.endPose.forward],
       };
       segment.length = result.totalLength;
+      segment.autoConnectorLength = result.meta?.connectorLength || 0;
+      if (focusIndex === null || focusIndex === i) {
+        lastSegmentMeta = result.meta || null;
+      }
     }
     coaster.samples = samples;
     coaster.cursorPose = pose;
-    return { success: true };
+    return { success: true, lastSegmentMeta };
   }
 }
 
@@ -1715,7 +1728,11 @@ applySegmentBtn.addEventListener("click", (event) => {
   }
   rebuildCoasterMesh(result.coaster);
   renderSegmentList();
-  showTrackStatus(`添加新段成功，花费 ¥${result.cost}`);
+  const connectorNote =
+    payload.autoConnectorLength && payload.autoConnectorLength > 0.05
+      ? `（含 ${payload.autoConnectorLength.toFixed(2)}m 补偿弧）`
+      : "";
+  showTrackStatus(`添加新段成功，花费 ¥${result.cost}${connectorNote}`);
   updateHud();
   clearSegmentForm();
 });
@@ -1732,7 +1749,11 @@ updateSegmentBtn.addEventListener("click", (event) => {
   }
   rebuildCoasterMesh(result.coaster);
   renderSegmentList();
-  showTrackStatus("轨道段已更新");
+  const connectorNote =
+    (result.segmentMeta?.connectorLength || 0) > 0.05
+      ? `（含 ${result.segmentMeta.connectorLength.toFixed(2)}m 补偿弧）`
+      : "";
+  showTrackStatus(`轨道段已更新${connectorNote}`);
   updateHud();
   clearSegmentForm();
 });
@@ -1855,14 +1876,18 @@ function readSegmentForm() {
 function describeSegment(segment, index) {
   const lengthInfo =
     segment.length != null ? `${segment.length.toFixed(1)}m` : "--";
+  const connector =
+    segment.autoConnectorLength && segment.autoConnectorLength > 0.05
+      ? `，含补偿 ${segment.autoConnectorLength.toFixed(1)}m`
+      : "";
   if (segment.type === "arc") {
     const modeLabel =
       segment.params.mode === "projected" ? "平面" : "空间";
     return `${index + 1}. 圆弧(${modeLabel}, ${segment.params.radius}m, ${
       segment.params.sweep
-    }°) - ${lengthInfo}`;
+    }°) - ${lengthInfo}${connector}`;
   }
-  return `${index + 1}. 贝塞尔 - ${lengthInfo}`;
+  return `${index + 1}. 贝塞尔 - ${lengthInfo}${connector}`;
 }
 
 function renderSegmentList() {
