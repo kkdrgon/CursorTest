@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">L2TP IPSec VPN</string>
+    <string name="label_server">服务端地址</string>
+    <string name="label_username">用户名</string>
+    <string name="label_password">密码</string>
+    <string name="label_psk">预共享密钥 (PSK)</string>
+    <string name="label_virtual_ip">虚拟 IPv4</string>
+    <string name="label_dns">DNS 服务器(逗号分隔)</string>
+    <string name="label_mtu">MTU</string>
+    <string name="action_connect">连接</string>
+    <string name="action_disconnect">断开</string>
+    <string name="label_status_idle">状态：未连接</string>
+    <string name="label_status_connecting">状态：正在建立隧道…</string>
+    <string name="label_status_connected">状态：已连接</string>
+    <string name="label_status_failure">状态：失败 - %1$s</string>
+</resources>
