@@ -7,11 +7,12 @@ function clamp(value, min, max) {
 }
 
 const PARK_SIZE = 60;
-const EXPANSION_RING = 1; // 木栅栏外一圈可购格
-const WORLD_SIZE = PARK_SIZE + EXPANSION_RING * 2;
+const MAX_EXPANSION_MARGIN = 20; // 初始公园外最多可扩展 20 格
+const WORLD_SIZE = PARK_SIZE + MAX_EXPANSION_MARGIN * 2;
 const HALF_WORLD = WORLD_SIZE / 2;
+const CORE_MIN = Math.floor(HALF_WORLD - PARK_SIZE / 2);
+const CORE_MAX = CORE_MIN + PARK_SIZE;
 const TOTAL_PURCHASABLE = WORLD_SIZE * WORLD_SIZE - PARK_SIZE * PARK_SIZE;
-const ringOffset = (WORLD_SIZE - PARK_SIZE) / 2;
 
 const MIN_DISTANCE = 38;
 const MAX_DISTANCE = 200;
@@ -55,11 +56,18 @@ function markCellOccupied(cell) {
   occupancy[cellIndex(cell.x, cell.z)] = 1;
 }
 
+function hasOccupiedNeighbor(x, z) {
+  return (
+    isCellOccupied(x + 1, z) ||
+    isCellOccupied(x - 1, z) ||
+    isCellOccupied(x, z + 1) ||
+    isCellOccupied(x, z - 1)
+  );
+}
+
 (function initializeCoreOccupancy() {
-  const innerStart = ringOffset;
-  const innerEnd = WORLD_SIZE - ringOffset;
-  for (let x = innerStart; x < innerEnd; x += 1) {
-    for (let z = innerStart; z < innerEnd; z += 1) {
+  for (let x = CORE_MIN; x < CORE_MAX; x += 1) {
+    for (let z = CORE_MIN; z < CORE_MAX; z += 1) {
       occupancy[cellIndex(x, z)] = 1;
     }
   }
@@ -955,12 +963,13 @@ function pickCell(event) {
 
 function isPurchasable(cell) {
   const { x, z } = cell;
-  return (
-    x < ringOffset ||
-    x >= WORLD_SIZE - ringOffset ||
-    z < ringOffset ||
-    z >= WORLD_SIZE - ringOffset
-  );
+  if (x < 0 || x >= WORLD_SIZE || z < 0 || z >= WORLD_SIZE) {
+    return false;
+  }
+  if (isCellOccupied(x, z)) {
+    return false;
+  }
+  return hasOccupiedNeighbor(x, z);
 }
 
 function updateStatus(message) {
