@@ -575,12 +575,12 @@ function buildFenceGeometry(bounds) {
       for (const vert of verts) {
         positions.push(vert[0], vert[1], vert[2]);
         const u =
-          axisU === \"x\" ? uv(vert[0], minBX, width) :
-          axisU === \"y\" ? uv(vert[1], minBY, height) :
+          axisU === "x" ? uv(vert[0], minBX, width) :
+          axisU === "y" ? uv(vert[1], minBY, height) :
           uv(vert[2], minBZ, depth);
         const v =
-          axisV === \"x\" ? uv(vert[0], minBX, width) :
-          axisV === \"y\" ? uv(vert[1], minBY, height) :
+          axisV === "x" ? uv(vert[0], minBX, width) :
+          axisV === "y" ? uv(vert[1], minBY, height) :
           uv(vert[2], minBZ, depth);
         cellCoords.push(u, v);
         parities.push(0);
@@ -593,48 +593,48 @@ function buildFenceGeometry(bounds) {
       [maxBX, minBY, maxBZ],
       [maxBX, maxBY, maxBZ],
       [minBX, maxBY, maxBZ],
-      \"x\",
-      \"y\"
+      "x",
+      "y"
     ); // front
     addFace(
       [maxBX, minBY, minBZ],
       [minBX, minBY, minBZ],
       [minBX, maxBY, minBZ],
       [maxBX, maxBY, minBZ],
-      \"x\",
-      \"y\"
+      "x",
+      "y"
     ); // back
     addFace(
       [minBX, minBY, minBZ],
       [minBX, minBY, maxBZ],
       [minBX, maxBY, maxBZ],
       [minBX, maxBY, minBZ],
-      \"z\",
-      \"y\"
+      "z",
+      "y"
     ); // left
     addFace(
       [maxBX, minBY, maxBZ],
       [maxBX, minBY, minBZ],
       [maxBX, maxBY, minBZ],
       [maxBX, maxBY, maxBZ],
-      \"z\",
-      \"y\"
+      "z",
+      "y"
     ); // right
     addFace(
       [minBX, maxBY, maxBZ],
       [maxBX, maxBY, maxBZ],
       [maxBX, maxBY, minBZ],
       [minBX, maxBY, minBZ],
-      \"x\",
-      \"z\"
+      "x",
+      "z"
     ); // top
     addFace(
       [minBX, minBY, minBZ],
       [maxBX, minBY, minBZ],
       [maxBX, minBY, maxBZ],
       [minBX, minBY, maxBZ],
-      \"x\",
-      \"z\"
+      "x",
+      "z"
     ); // bottom
   }
 
