@@ -543,63 +543,175 @@ function buildFenceGeometry(bounds) {
   const cellCoords = [];
   const parities = [];
   const types = [];
-  const height = 4;
+
   const offset = 0.02;
   const minX = bounds.minX - offset;
   const maxX = bounds.maxX + offset;
   const minZ = bounds.minZ - offset;
   const maxZ = bounds.maxZ + offset;
 
-  function pushWallZ(zPos) {
-    positions.push(
-      minX, 0, zPos,
-      maxX, 0, zPos,
-      maxX, height, zPos,
-      minX, 0, zPos,
-      maxX, height, zPos,
-      minX, height, zPos
-    );
-    cellCoords.push(
-      0, 0,
-      1, 0,
-      1, 1,
-      0, 0,
-      1, 1,
-      0, 1
-    );
-    for (let i = 0; i < 6; i += 1) {
-      parities.push(0);
-      types.push(1);
+  const POST_WIDTH = 0.18;
+  const POST_DEPTH = 0.25;
+  const POST_HALF = POST_WIDTH / 2;
+  const POST_HEIGHT = 3.6;
+  const RAIL_HEIGHT = 0.35;
+  const RAIL_CENTER = 1.4;
+  const MODULE_SIZE = 2;
+
+  function pushBox(minBX, minBY, minBZ, maxBX, maxBY, maxBZ) {
+    if (maxBX - minBX <= 0 || maxBY - minBY <= 0 || maxBZ - minBZ <= 0) {
+      return;
+    }
+    const width = Math.max(maxBX - minBX, 0.0001);
+    const height = Math.max(maxBY - minBY, 0.0001);
+    const depth = Math.max(maxBZ - minBZ, 0.0001);
+
+    function uv(value, min, range) {
+      return range === 0 ? 0 : (value - min) / range;
+    }
+
+    function addFace(v0, v1, v2, v3, axisU, axisV) {
+      const verts = [v0, v1, v2, v0, v2, v3];
+      for (const vert of verts) {
+        positions.push(vert[0], vert[1], vert[2]);
+        const u =
+          axisU === \"x\" ? uv(vert[0], minBX, width) :
+          axisU === \"y\" ? uv(vert[1], minBY, height) :
+          uv(vert[2], minBZ, depth);
+        const v =
+          axisV === \"x\" ? uv(vert[0], minBX, width) :
+          axisV === \"y\" ? uv(vert[1], minBY, height) :
+          uv(vert[2], minBZ, depth);
+        cellCoords.push(u, v);
+        parities.push(0);
+        types.push(1);
+      }
+    }
+
+    addFace(
+      [minBX, minBY, maxBZ],
+      [maxBX, minBY, maxBZ],
+      [maxBX, maxBY, maxBZ],
+      [minBX, maxBY, maxBZ],
+      \"x\",
+      \"y\"
+    ); // front
+    addFace(
+      [maxBX, minBY, minBZ],
+      [minBX, minBY, minBZ],
+      [minBX, maxBY, minBZ],
+      [maxBX, maxBY, minBZ],
+      \"x\",
+      \"y\"
+    ); // back
+    addFace(
+      [minBX, minBY, minBZ],
+      [minBX, minBY, maxBZ],
+      [minBX, maxBY, maxBZ],
+      [minBX, maxBY, minBZ],
+      \"z\",
+      \"y\"
+    ); // left
+    addFace(
+      [maxBX, minBY, maxBZ],
+      [maxBX, minBY, minBZ],
+      [maxBX, maxBY, minBZ],
+      [maxBX, maxBY, maxBZ],
+      \"z\",
+      \"y\"
+    ); // right
+    addFace(
+      [minBX, maxBY, maxBZ],
+      [maxBX, maxBY, maxBZ],
+      [maxBX, maxBY, minBZ],
+      [minBX, maxBY, minBZ],
+      \"x\",
+      \"z\"
+    ); // top
+    addFace(
+      [minBX, minBY, minBZ],
+      [maxBX, minBY, minBZ],
+      [maxBX, minBY, maxBZ],
+      [minBX, minBY, maxBZ],
+      \"x\",
+      \"z\"
+    ); // bottom
+  }
+
+  function pushPostAlongX(xCenter, zPos, outward) {
+    const minBX = xCenter - POST_HALF;
+    const maxBX = xCenter + POST_HALF;
+    const minBZ = outward > 0 ? zPos : zPos - POST_DEPTH;
+    const maxBZ = outward > 0 ? zPos + POST_DEPTH : zPos;
+    pushBox(minBX, 0, minBZ, maxBX, POST_HEIGHT, maxBZ);
+  }
+
+  function pushRailAlongX(x0, x1, zPos, outward) {
+    if (x1 - x0 <= 0.01) {
+      return;
+    }
+    const minBX = x0;
+    const maxBX = x1;
+    const minBY = RAIL_CENTER - RAIL_HEIGHT / 2;
+    const maxBY = RAIL_CENTER + RAIL_HEIGHT / 2;
+    const minBZ = outward > 0 ? zPos : zPos - POST_DEPTH;
+    const maxBZ = outward > 0 ? zPos + POST_DEPTH : zPos;
+    pushBox(minBX, minBY, minBZ, maxBX, maxBY, maxBZ);
+  }
+
+  function pushPostAlongZ(zCenter, xPos, outward) {
+    const minBZ = zCenter - POST_HALF;
+    const maxBZ = zCenter + POST_HALF;
+    const minBX = outward > 0 ? xPos : xPos - POST_DEPTH;
+    const maxBX = outward > 0 ? xPos + POST_DEPTH : xPos;
+    pushBox(minBX, 0, minBZ, maxBX, POST_HEIGHT, maxBZ);
+  }
+
+  function pushRailAlongZ(z0, z1, xPos, outward) {
+    if (z1 - z0 <= 0.01) {
+      return;
+    }
+    const minBZ = z0;
+    const maxBZ = z1;
+    const minBY = RAIL_CENTER - RAIL_HEIGHT / 2;
+    const maxBY = RAIL_CENTER + RAIL_HEIGHT / 2;
+    const minBX = outward > 0 ? xPos : xPos - POST_DEPTH;
+    const maxBX = outward > 0 ? xPos + POST_DEPTH : xPos;
+    pushBox(minBX, minBY, minBZ, maxBX, maxBY, maxBZ);
+  }
+
+  function buildSideAlongX(zPos, outward) {
+    const length = maxX - minX;
+    if (length <= 0) {
+      return;
+    }
+    for (let x = minX; x < maxX; x += MODULE_SIZE) {
+      const x0 = x;
+      const x1 = Math.min(x + MODULE_SIZE, maxX);
+      pushPostAlongX(x0, zPos, outward);
+      pushPostAlongX(x1, zPos, outward);
+      pushRailAlongX(x0, x1, zPos, outward);
     }
   }
 
-  function pushWallX(xPos) {
-    positions.push(
-      xPos, 0, minZ,
-      xPos, 0, maxZ,
-      xPos, height, maxZ,
-      xPos, 0, minZ,
-      xPos, height, maxZ,
-      xPos, height, minZ
-    );
-    cellCoords.push(
-      0, 0,
-      1, 0,
-      1, 1,
-      0, 0,
-      1, 1,
-      0, 1
-    );
-    for (let i = 0; i < 6; i += 1) {
-      parities.push(0);
-      types.push(1);
+  function buildSideAlongZ(xPos, outward) {
+    const length = maxZ - minZ;
+    if (length <= 0) {
+      return;
+    }
+    for (let z = minZ; z < maxZ; z += MODULE_SIZE) {
+      const z0 = z;
+      const z1 = Math.min(z + MODULE_SIZE, maxZ);
+      pushPostAlongZ(z0, xPos, outward);
+      pushPostAlongZ(z1, xPos, outward);
+      pushRailAlongZ(z0, z1, xPos, outward);
     }
   }
 
-  pushWallZ(maxZ);
-  pushWallZ(minZ);
-  pushWallX(maxX);
-  pushWallX(minX);
+  buildSideAlongX(maxZ, 1);
+  buildSideAlongX(minZ, -1);
+  buildSideAlongZ(maxX, 1);
+  buildSideAlongZ(minX, -1);
 
   return {
     positions: new Float32Array(positions),
