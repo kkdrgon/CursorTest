@@ -93,21 +93,22 @@
   </head>
   <body>
     <header>
-      <h1>过山车公园规划器 (WebGL2)</h1>
+      <h1>过山车公园规划器 (WebGL2 · 3D)</h1>
       <div class="info-line">
-        <span>地面：棋盘格</span>
-        <span>尺寸：<strong>60 × 60</strong></span>
-        <span>操作：点击格子尝试购买</span>
+        <span>地面：WebGL2 3D 草地</span>
+        <span>核心公园：<strong>60 m × 60 m</strong>（免购）</span>
+        <span>扩展：木栅栏外一圈格子可购</span>
+        <span>操作：点击扩展格可购买</span>
       </div>
     </header>
     <main>
       <canvas id="rollerCanvas"></canvas>
       <section class="panel" id="purchasePanel">
-        <h2>购买记录</h2>
-        <p id="purchaseStatus">尚未购买任何格子</p>
+        <h2>扩展地块购买</h2>
+        <p id="purchaseStatus">核心地块已开放，尚未购买扩展格。</p>
         <div class="info-line">
-          <span>剩余格子：<strong id="remainingCells">3600</strong></span>
-          <span>已购格子：<span class="badge" id="purchasedCount">0</span></span>
+          <span>剩余扩展格：<strong id="remainingCells">--</strong></span>
+          <span>已购扩展格：<span class="badge" id="purchasedCount">0</span></span>
         </div>
       </section>
     </main>
