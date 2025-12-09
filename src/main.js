@@ -459,17 +459,8 @@ vec3 renderFence(vec2 uv) {
   return color;
 }
 
-vec3 renderExpansion(vec2 uv, vec2 id, float purchased) {
-  vec3 soil = vec3(0.18, 0.12, 0.08);
-  float noiseVal = fbm(id * 0.15 + uv * 8.0);
-  vec3 soilTint = soil + vec3(0.05, 0.03, 0.02) * noiseVal;
-  vec3 purchaseColor = vec3(0.21, 0.64, 0.36);
-  return mix(soilTint, purchaseColor, purchased);
-}
-
 void main() {
   vec2 uv = (vCellCoord + 0.5) / vec2(uWorldSize);
-  float purchased = texture(uPurchaseState, uv).r;
 
   if (vType < 0.5) {
     vec3 grass = renderGrass(vParity, vCellUv, vCellCoord);
@@ -483,8 +474,8 @@ void main() {
     return;
   }
 
-  vec3 expansion = renderExpansion(vCellUv, vCellCoord, purchased);
-  outColor = vec4(expansion, 1.0);
+  vec3 expansionGrass = renderGrass(vParity, vCellUv, vCellCoord);
+  outColor = vec4(expansionGrass, 1.0);
 }
 `;
 
