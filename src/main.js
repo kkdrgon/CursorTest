@@ -80,6 +80,7 @@ const player = {
   worldX: 0,
   worldZ: 0,
   height: 1.4,
+  yaw: 0,
 };
 
 function updatePlayerWorldPosition() {
@@ -154,6 +155,17 @@ function trySetPlayerPosition(worldX, worldZ) {
   return true;
 }
 
+function shortestAngleDelta(current, target) {
+  let diff = target - current;
+  while (diff > Math.PI) {
+    diff -= Math.PI * 2;
+  }
+  while (diff < -Math.PI) {
+    diff += Math.PI * 2;
+  }
+  return diff;
+}
+
 function updatePlayerPosition(deltaSeconds) {
   const moveX =
     (inputState.right ? 1 : 0) - (inputState.left ? 1 : 0);
@@ -183,6 +195,9 @@ function updatePlayerPosition(deltaSeconds) {
   }
   worldMoveX /= length;
   worldMoveZ /= length;
+
+  const desiredYaw = Math.atan2(worldMoveX, worldMoveZ);
+  player.yaw += shortestAngleDelta(player.yaw, desiredYaw) * Math.min(deltaSeconds * 12.0, 1.0);
 
   const step = PLAYER_SPEED * deltaSeconds;
   const targetX = player.worldX + worldMoveX * step;
@@ -1132,6 +1147,7 @@ const uniforms = {
   playerOffset: gl.getUniformLocation(program, "uPlayerOffset"),
   time: gl.getUniformLocation(program, "uTime"),
   moveIntensity: gl.getUniformLocation(program, "uMoveIntensity"),
+  playerRotation: gl.getUniformLocation(program, "uPlayerRotation"),
 };
 
 gl.uniform1f(uniforms.worldHalf, HALF_WORLD);
@@ -1140,6 +1156,7 @@ gl.uniform1i(uniforms.purchaseState, 0);
 gl.uniform3f(uniforms.playerOffset, 0, 0, 0);
 gl.uniform1f(uniforms.time, 0);
 gl.uniform1f(uniforms.moveIntensity, 0);
+gl.uniform1f(uniforms.playerRotation, 0);
 
 const purchasedCells = new Set();
 let inverseViewProjection = camera.inverseViewProjection;
@@ -1193,6 +1210,7 @@ function render(time) {
   gl.uniformMatrix4fv(uniforms.viewProjection, false, camera.viewProjection);
   gl.uniform1f(uniforms.time, time * 0.001);
   gl.uniform1f(uniforms.moveIntensity, playerMoveIntensity);
+  gl.uniform1f(uniforms.playerRotation, player.yaw);
 
   gl.bindVertexArray(groundMesh.vao);
   gl.uniform3f(uniforms.playerOffset, 0, 0, 0);
