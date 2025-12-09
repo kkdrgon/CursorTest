@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>过山车公园 - WebGL2 棋盘地面</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", "PingFang SC", system-ui, -apple-system, sans-serif;
+        background: #0d1117;
+        color: #f0f6fc;
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+      }
+
+      header,
+      footer {
+        padding: 0.8rem 1.2rem;
+        background: rgba(1, 4, 9, 0.8);
+        border-bottom: 1px solid rgba(240, 246, 252, 0.08);
+      }
+
+      footer {
+        border-top: 1px solid rgba(240, 246, 252, 0.08);
+        border-bottom: none;
+        margin-top: auto;
+        font-size: 0.9rem;
+        color: #8b949e;
+      }
+
+      main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 0.8rem;
+        gap: 0.8rem;
+      }
+
+      #rollerCanvas {
+        width: 100%;
+        max-height: calc(100vh - 210px);
+        border: 1px solid rgba(240, 246, 252, 0.08);
+        border-radius: 8px;
+        display: block;
+        background: radial-gradient(circle at top, #111c2b, #05090f 60%);
+      }
+
+      .panel {
+        background: rgba(13, 17, 23, 0.8);
+        border: 1px solid rgba(240, 246, 252, 0.08);
+        border-radius: 8px;
+        padding: 1rem;
+      }
+
+      .panel h2 {
+        margin: 0 0 0.4rem 0;
+        font-size: 1.1rem;
+      }
+
+      .panel p {
+        margin: 0.2rem 0;
+        color: #9da7b6;
+      }
+
+      .info-line {
+        display: flex;
+        gap: 0.6rem;
+        flex-wrap: wrap;
+        font-size: 0.9rem;
+        color: #c9d1d9;
+      }
+
+      .info-line span {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.2rem;
+      }
+
+      .badge {
+        padding: 0.1rem 0.35rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        background: rgba(35, 134, 54, 0.2);
+        color: #3fb950;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>过山车公园规划器 (WebGL2)</h1>
+      <div class="info-line">
+        <span>地面：棋盘格</span>
+        <span>尺寸：<strong>60 × 60</strong></span>
+        <span>操作：点击格子尝试购买</span>
+      </div>
+    </header>
+    <main>
+      <canvas id="rollerCanvas"></canvas>
+      <section class="panel" id="purchasePanel">
+        <h2>购买记录</h2>
+        <p id="purchaseStatus">尚未购买任何格子</p>
+        <div class="info-line">
+          <span>剩余格子：<strong id="remainingCells">3600</strong></span>
+          <span>已购格子：<span class="badge" id="purchasedCount">0</span></span>
+        </div>
+      </section>
+    </main>
+    <footer>使用 WebGL2 渲染，可视化过山车公园地块规划。</footer>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
