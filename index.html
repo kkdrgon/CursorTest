@@ -49,6 +49,12 @@
         border-radius: 8px;
         display: block;
         background: radial-gradient(circle at top, #111c2b, #05090f 60%);
+        touch-action: none;
+        cursor: grab;
+      }
+
+      #rollerCanvas.dragging {
+        cursor: grabbing;
       }
 
       .panel {
@@ -99,6 +105,7 @@
         <span>核心公园：<strong>60 m × 60 m</strong>（免购）</span>
         <span>扩展：木栅栏外一圈格子可购</span>
         <span>操作：点击扩展格可购买</span>
+        <span>交互：拖拽旋转 · 滚轮 / 双指缩放</span>
       </div>
     </header>
     <main>

@@ -3,6 +3,25 @@ const PURCHASE_RING_WIDTH = 1; // 木栅栏外可购买的一圈格子厚度（�
 const WORLD_SIZE = PARK_SIZE + PURCHASE_RING_WIDTH * 2;
 const HALF_WORLD = WORLD_SIZE / 2;
 const TOTAL_PURCHASABLE_CELLS = WORLD_SIZE * WORLD_SIZE - PARK_SIZE * PARK_SIZE;
+const MIN_DISTANCE = 38;
+const MAX_DISTANCE = 180;
+const ROTATE_SPEED_MOUSE = 0.003;
+const ROTATE_SPEED_TOUCH = 0.002;
+const ZOOM_SPEED_WHEEL = 0.08;
+const ZOOM_SPEED_LINE = 2.5;
+const MIN_PITCH = degToRad(-80);
+const MAX_PITCH = degToRad(-15);
+
+let cameraDistance = 120;
+let orbitYaw = degToRad(-135);
+let orbitPitch = degToRad(-35);
+const cameraPosition = [0, 0, 0];
+const pointerTracker = new Map();
+let isOrbitingPointer = false;
+let lastPointerX = 0;
+let lastPointerY = 0;
+let pinchStartDistance = null;
+let pinchStartCameraDistance = null;
 
 const canvas = document.getElementById("rollerCanvas");
 const gl = canvas.getContext("webgl2", { antialias: true, depth: true });
@@ -26,6 +45,10 @@ const remainingCellsEl = document.getElementById("remainingCells");
 // --- 数学工具 ---
 function degToRad(degrees) {
   return (degrees * Math.PI) / 180;
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function multiplyMat4(a, b) {
@@ -181,6 +204,16 @@ function createLookAtMatrix(eye, target, up) {
   );
   out[15] = 1;
   return out;
+}
+
+function updateCameraPosition() {
+  const cosPitch = Math.cos(orbitPitch);
+  const sinPitch = Math.sin(orbitPitch);
+  const cosYaw = Math.cos(orbitYaw);
+  const sinYaw = Math.sin(orbitYaw);
+  cameraPosition[0] = cosYaw * cosPitch * cameraDistance;
+  cameraPosition[1] = sinPitch * cameraDistance;
+  cameraPosition[2] = sinYaw * cosPitch * cameraDistance;
 }
 
 function transformClipToWorld(matrix, ndcX, ndcY, ndcZ) {
@@ -560,7 +593,6 @@ const purchasedCells = new Set();
 const ringOffset = (WORLD_SIZE - PARK_SIZE) / 2;
 let inverseViewProjectionMatrix = null;
 
-const cameraPosition = [0, 55, 85];
 const cameraTarget = [0, 0, 0];
 const cameraUp = [0, 1, 0];
 const cameraFov = degToRad(50);
@@ -605,6 +637,7 @@ function resizeCanvasToDisplaySize() {
 
 function computeCameraMatrices() {
   const aspect = gl.drawingBufferWidth / Math.max(gl.drawingBufferHeight, 1);
+  updateCameraPosition();
   const projection = createPerspectiveMatrix(cameraFov, aspect, 0.1, 400.0);
   const view = createLookAtMatrix(cameraPosition, cameraTarget, cameraUp);
   const viewProjection = multiplyMat4(projection, view);
@@ -698,6 +731,115 @@ function getCellFromPointer(event) {
   const cellZ = Math.floor(worldZ + HALF_WORLD);
   return { x: cellX, z: cellZ };
 }
+
+function getPointerDistance(a, b) {
+  if (!a || !b) {
+    return 0;
+  }
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function getPointerEntries() {
+  return Array.from(pointerTracker.values());
+}
+
+function handlePointerDown(event) {
+  if (event.pointerType === "mouse" && event.button !== 0) {
+    return;
+  }
+  pointerTracker.set(event.pointerId, {
+    x: event.clientX,
+    y: event.clientY,
+    type: event.pointerType,
+  });
+  canvas.setPointerCapture(event.pointerId);
+  if (pointerTracker.size === 1) {
+    isOrbitingPointer = true;
+    lastPointerX = event.clientX;
+    lastPointerY = event.clientY;
+    canvas.classList.add("dragging");
+  } else if (pointerTracker.size === 2) {
+    isOrbitingPointer = false;
+    canvas.classList.remove("dragging");
+    const [first, second] = getPointerEntries();
+    pinchStartDistance = getPointerDistance(first, second);
+    pinchStartCameraDistance = cameraDistance;
+  }
+}
+
+function handlePointerMove(event) {
+  const entry = pointerTracker.get(event.pointerId);
+  if (!entry) {
+    return;
+  }
+  entry.x = event.clientX;
+  entry.y = event.clientY;
+
+  if (pointerTracker.size === 1 && isOrbitingPointer) {
+    const dx = event.clientX - lastPointerX;
+    const dy = event.clientY - lastPointerY;
+    lastPointerX = event.clientX;
+    lastPointerY = event.clientY;
+    const speed = entry.type === "touch" ? ROTATE_SPEED_TOUCH : ROTATE_SPEED_MOUSE;
+    orbitYaw += dx * speed;
+    orbitPitch = clamp(orbitPitch + dy * speed, MIN_PITCH, MAX_PITCH);
+  } else if (pointerTracker.size >= 2 && pinchStartDistance) {
+    const [first, second] = getPointerEntries();
+    const currentDistance = getPointerDistance(first, second);
+    if (currentDistance > 0.01) {
+      const scale = pinchStartDistance / currentDistance;
+      cameraDistance = clamp(
+        pinchStartCameraDistance * scale,
+        MIN_DISTANCE,
+        MAX_DISTANCE
+      );
+    }
+  }
+}
+
+function handlePointerUp(event) {
+  if (pointerTracker.has(event.pointerId)) {
+    pointerTracker.delete(event.pointerId);
+    try {
+      canvas.releasePointerCapture(event.pointerId);
+    } catch (error) {
+      // 忽略捕获释放错误
+    }
+  }
+
+  if (pointerTracker.size === 1) {
+    const [remaining] = getPointerEntries();
+    if (remaining) {
+      lastPointerX = remaining.x;
+      lastPointerY = remaining.y;
+      isOrbitingPointer = true;
+      canvas.classList.add("dragging");
+    }
+    pinchStartDistance = null;
+  } else if (pointerTracker.size === 0) {
+    isOrbitingPointer = false;
+    pinchStartDistance = null;
+    pinchStartCameraDistance = null;
+    canvas.classList.remove("dragging");
+  }
+}
+
+function handleWheel(event) {
+  event.preventDefault();
+  const speed = event.deltaMode === 0 ? ZOOM_SPEED_WHEEL : ZOOM_SPEED_LINE;
+  cameraDistance = clamp(
+    cameraDistance + event.deltaY * speed,
+    MIN_DISTANCE,
+    MAX_DISTANCE
+  );
+}
+
+canvas.addEventListener("pointerdown", handlePointerDown);
+canvas.addEventListener("pointermove", handlePointerMove);
+canvas.addEventListener("pointerup", handlePointerUp);
+canvas.addEventListener("pointercancel", handlePointerUp);
+canvas.addEventListener("pointerleave", handlePointerUp);
+canvas.addEventListener("wheel", handleWheel, { passive: false });
 
 canvas.addEventListener("click", (event) => {
   const cell = getCellFromPointer(event);
