@@ -18,6 +18,11 @@ const MIN_DISTANCE = 4;
 const MAX_DISTANCE = 30;
 const MIN_PITCH = degToRad(20);
 const MAX_PITCH = degToRad(80);
+const ROTATE_SPEED_MOUSE = 0.004;
+const ROTATE_SPEED_TOUCH = 0.003;
+const WHEEL_SPEED_PX = 0.09;
+const WHEEL_SPEED_LINE = 3;
+const PLAYER_SPEED = 4; // m/s
 
 const canvas = document.getElementById("viewport");
 const gl = canvas.getContext("webgl2", { antialias: true, depth: true });
@@ -74,6 +79,7 @@ const player = {
   cellZ: Math.floor((CORE_MIN + CORE_MAX) / 2),
   worldX: 0,
   worldZ: 0,
+  height: 1.4,
 };
 
 function updatePlayerWorldPosition() {
@@ -83,37 +89,108 @@ function updatePlayerWorldPosition() {
 
 updatePlayerWorldPosition();
 
-const movementKeys = {
-  ArrowUp: { dx: 0, dz: -1 },
-  ArrowDown: { dx: 0, dz: 1 },
-  ArrowLeft: { dx: -1, dz: 0 },
-  ArrowRight: { dx: 1, dz: 0 },
-  w: { dx: 0, dz: -1 },
-  s: { dx: 0, dz: 1 },
-  a: { dx: -1, dz: 0 },
-  d: { dx: 1, dz: 0 },
+const inputState = {
+  forward: false,
+  back: false,
+  left: false,
+  right: false,
 };
 
-function tryMovePlayer(dx, dz) {
-  const targetX = player.cellX + dx;
-  const targetZ = player.cellZ + dz;
-  if (!isCellOccupied(targetX, targetZ)) {
-    return;
-  }
-  player.cellX = targetX;
-  player.cellZ = targetZ;
-  updatePlayerWorldPosition();
+const keyBindings = {
+  ArrowUp: "forward",
+  w: "forward",
+  ArrowDown: "back",
+  s: "back",
+  ArrowLeft: "left",
+  a: "left",
+  ArrowRight: "right",
+  d: "right",
+};
+
+function normalizeKey(key) {
+  return key.length === 1 ? key.toLowerCase() : key;
 }
 
-window.addEventListener("keydown", (event) => {
-  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
-  const dir = movementKeys[key];
-  if (!dir || event.repeat) {
+function handleMovementKey(event, isDown) {
+  const action = keyBindings[normalizeKey(event.key)];
+  if (!action) {
     return;
   }
   event.preventDefault();
-  tryMovePlayer(dir.dx, dir.dz);
+  inputState[action] = isDown;
+}
+
+window.addEventListener("keydown", (event) => {
+  if (event.repeat) {
+    return;
+  }
+  handleMovementKey(event, true);
 });
+
+window.addEventListener("keyup", (event) => {
+  handleMovementKey(event, false);
+});
+
+function isWalkableWorldPosition(worldX, worldZ) {
+  const cellX = Math.floor(worldX + HALF_WORLD);
+  const cellZ = Math.floor(worldZ + HALF_WORLD);
+  return isCellOccupied(cellX, cellZ);
+}
+
+function setPlayerWorldPosition(worldX, worldZ) {
+  player.worldX = worldX;
+  player.worldZ = worldZ;
+  player.cellX = Math.floor(worldX + HALF_WORLD);
+  player.cellZ = Math.floor(worldZ + HALF_WORLD);
+}
+
+function trySetPlayerPosition(worldX, worldZ) {
+  if (!isWalkableWorldPosition(worldX, worldZ)) {
+    return false;
+  }
+  setPlayerWorldPosition(worldX, worldZ);
+  return true;
+}
+
+function updatePlayerPosition(deltaSeconds) {
+  const moveX =
+    (inputState.right ? 1 : 0) - (inputState.left ? 1 : 0);
+  const moveZ =
+    (inputState.forward ? 1 : 0) - (inputState.back ? 1 : 0);
+
+  if (moveX === 0 && moveZ === 0) {
+    return;
+  }
+
+  const yaw = camera.yaw;
+  const forwardX = -Math.cos(yaw);
+  const forwardZ = -Math.sin(yaw);
+  const rightX = Math.sin(yaw);
+  const rightZ = -Math.cos(yaw);
+
+  let worldMoveX = moveX * rightX + moveZ * forwardX;
+  let worldMoveZ = moveX * rightZ + moveZ * forwardZ;
+  const length = Math.hypot(worldMoveX, worldMoveZ);
+  if (length < 1e-4) {
+    return;
+  }
+  worldMoveX /= length;
+  worldMoveZ /= length;
+
+  const step = PLAYER_SPEED * deltaSeconds;
+  const targetX = player.worldX + worldMoveX * step;
+  const targetZ = player.worldZ + worldMoveZ * step;
+
+  const currentX = player.worldX;
+  const currentZ = player.worldZ;
+  if (trySetPlayerPosition(targetX, targetZ)) {
+    return;
+  }
+  if (trySetPlayerPosition(currentX, targetZ)) {
+    return;
+  }
+  trySetPlayerPosition(targetX, currentZ);
+}
 
 const Mat4 = {
   create() {
@@ -326,6 +403,109 @@ class OrbitCamera {
 }
 
 const camera = new OrbitCamera();
+
+const pointerMap = new Map();
+let orbiting = false;
+let lastPointerX = 0;
+let lastPointerY = 0;
+let pinchBaseline = null;
+let pinchDistanceStart = null;
+
+function pointerEntries() {
+  return Array.from(pointerMap.values());
+}
+
+function pointerDistance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+canvas.addEventListener("pointerdown", (event) => {
+  if (event.pointerType === "mouse" && event.button !== 0) {
+    return;
+  }
+  pointerMap.set(event.pointerId, {
+    x: event.clientX,
+    y: event.clientY,
+    type: event.pointerType,
+  });
+  canvas.setPointerCapture(event.pointerId);
+  if (pointerMap.size === 1) {
+    orbiting = true;
+    lastPointerX = event.clientX;
+    lastPointerY = event.clientY;
+    canvas.classList.add("dragging");
+  } else if (pointerMap.size === 2) {
+    orbiting = false;
+    canvas.classList.remove("dragging");
+    const [first, second] = pointerEntries();
+    pinchBaseline = pointerDistance(first, second);
+    pinchDistanceStart = camera.distance;
+  }
+});
+
+canvas.addEventListener("pointermove", (event) => {
+  const entry = pointerMap.get(event.pointerId);
+  if (!entry) {
+    return;
+  }
+  entry.x = event.clientX;
+  entry.y = event.clientY;
+
+  if (pointerMap.size === 1 && orbiting) {
+    const dx = event.clientX - lastPointerX;
+    const dy = event.clientY - lastPointerY;
+    lastPointerX = event.clientX;
+    lastPointerY = event.clientY;
+    const speed =
+      entry.type === "touch" ? ROTATE_SPEED_TOUCH : ROTATE_SPEED_MOUSE;
+    camera.rotate(dx, dy, speed);
+  } else if (pointerMap.size === 2 && pinchBaseline) {
+    const [first, second] = pointerEntries();
+    const current = pointerDistance(first, second);
+    if (current > 0.1) {
+      const scale = pinchBaseline / current;
+      camera.setDistance(pinchDistanceStart * scale);
+    }
+  }
+});
+
+function releasePointer(id) {
+  if (!pointerMap.has(id)) {
+    return;
+  }
+  pointerMap.delete(id);
+  try {
+    canvas.releasePointerCapture(id);
+  } catch {
+    // ignore errors
+  }
+
+  if (pointerMap.size === 1) {
+    const [remaining] = pointerEntries();
+    lastPointerX = remaining.x;
+    lastPointerY = remaining.y;
+    orbiting = true;
+    canvas.classList.add("dragging");
+  } else {
+    orbiting = false;
+    canvas.classList.remove("dragging");
+  }
+
+  if (pointerMap.size < 2) {
+    pinchBaseline = null;
+    pinchDistanceStart = null;
+  }
+}
+
+canvas.addEventListener("pointerup", (event) => releasePointer(event.pointerId));
+canvas.addEventListener("pointercancel", (event) => releasePointer(event.pointerId));
+canvas.addEventListener("pointerleave", (event) => releasePointer(event.pointerId));
+
+canvas.addEventListener("wheel", (event) => {
+  event.preventDefault();
+  const scale = event.deltaMode === 0 ? WHEEL_SPEED_PX : WHEEL_SPEED_LINE;
+  camera.dolly(event.deltaY * scale);
+});
 
 const vertexSource = `#version 300 es
 layout(location = 0) in vec3 aPosition;
@@ -703,68 +883,51 @@ function buildPlayerGeometry() {
   const parities = [];
   const types = [];
 
-  const width = 0.4;
-  const depth = 0.4;
-  const height = 1.4;
-  const halfW = width / 2;
-  const halfD = depth / 2;
-
-  function addFace(a, b, c, d) {
-    positions.push(
-      ...a, ...b, ...c,
-      ...a, ...c, ...d
-    );
-    cellCoords.push(
-      0, 0,
-      1, 0,
-      1, 1,
-      0, 0,
-      1, 1,
-      0, 1
-    );
-    for (let i = 0; i < 6; i += 1) {
-      parities.push(0);
-      types.push(3);
+  function addBox(minX, minY, minZ, maxX, maxY, maxZ) {
+    const faces = [
+      // front
+      [[minX, minY, maxZ], [maxX, minY, maxZ], [maxX, maxY, maxZ], [minX, maxY, maxZ]],
+      // back
+      [[maxX, minY, minZ], [minX, minY, minZ], [minX, maxY, minZ], [maxX, maxY, minZ]],
+      // left
+      [[minX, minY, minZ], [minX, minY, maxZ], [minX, maxY, maxZ], [minX, maxY, minZ]],
+      // right
+      [[maxX, minY, maxZ], [maxX, minY, minZ], [maxX, maxY, minZ], [maxX, maxY, maxZ]],
+      // top
+      [[minX, maxY, maxZ], [maxX, maxY, maxZ], [maxX, maxY, minZ], [minX, maxY, minZ]],
+      // bottom
+      [[minX, minY, minZ], [maxX, minY, minZ], [maxX, minY, maxZ], [minX, minY, maxZ]],
+    ];
+    for (const face of faces) {
+      positions.push(
+        ...face[0], ...face[1], ...face[2],
+        ...face[0], ...face[2], ...face[3]
+      );
+      cellCoords.push(
+        0, 0,
+        1, 0,
+        1, 1,
+        0, 0,
+        1, 1,
+        0, 1
+      );
+      for (let i = 0; i < 6; i += 1) {
+        parities.push(0);
+        types.push(3);
+      }
     }
   }
 
-  const top = height;
-  addFace(
-    [-halfW, 0, halfD],
-    [halfW, 0, halfD],
-    [halfW, top, halfD],
-    [-halfW, top, halfD]
-  );
-  addFace(
-    [halfW, 0, -halfD],
-    [-halfW, 0, -halfD],
-    [-halfW, top, -halfD],
-    [halfW, top, -halfD]
-  );
-  addFace(
-    [-halfW, 0, -halfD],
-    [-halfW, 0, halfD],
-    [-halfW, top, halfD],
-    [-halfW, top, -halfD]
-  );
-  addFace(
-    [halfW, 0, halfD],
-    [halfW, 0, -halfD],
-    [halfW, top, -halfD],
-    [halfW, top, halfD]
-  );
-  addFace(
-    [-halfW, top, halfD],
-    [halfW, top, halfD],
-    [halfW, top, -halfD],
-    [-halfW, top, -halfD]
-  );
-  addFace(
-    [-halfW, 0, -halfD],
-    [halfW, 0, -halfD],
-    [halfW, 0, halfD],
-    [-halfW, 0, halfD]
-  );
+  // Torso
+  addBox(-0.06, 0.5, -0.04, 0.06, 1.2, 0.04);
+  // Head
+  addBox(-0.1, 1.2, -0.1, 0.1, 1.4, 0.1);
+  // Arms
+  addBox(-0.6, 0.85, -0.025, 0.6, 0.93, 0.025);
+  // Left leg
+  addBox(-0.12, 0.0, -0.03, -0.04, 0.6, 0.03);
+  // Right leg
+  addBox(0.04, 0.0, -0.03, 0.12, 0.6, 0.03);
 
   return {
     positions: new Float32Array(positions),
@@ -911,13 +1074,22 @@ function resizeCanvas() {
   }
 }
 
-function render() {
+let lastFrameTime = null;
+
+function render(time) {
+  if (lastFrameTime === null) {
+    lastFrameTime = time;
+  }
+  const deltaSeconds = Math.min((time - lastFrameTime) / 1000, 0.1);
+  lastFrameTime = time;
+
+  updatePlayerPosition(deltaSeconds);
   resizeCanvas();
   gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   const aspect = gl.drawingBufferWidth / Math.max(gl.drawingBufferHeight, 1);
-  camera.setTarget(player.worldX, 0.8, player.worldZ);
+  camera.setTarget(player.worldX, player.height * 0.6, player.worldZ);
   camera.update(aspect);
   inverseViewProjection = camera.inverseViewProjection;
   gl.uniformMatrix4fv(uniforms.viewProjection, false, camera.viewProjection);
