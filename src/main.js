@@ -1,36 +1,3 @@
-const PARK_SIZE = 60;
-const EXPANSION_RING = 1; // 木栅栏外额外一圈可购格
-const WORLD_SIZE = PARK_SIZE + EXPANSION_RING * 2;
-const HALF_WORLD = WORLD_SIZE / 2;
-const TOTAL_PURCHASABLE = WORLD_SIZE * WORLD_SIZE - PARK_SIZE * PARK_SIZE;
-
-const MIN_DISTANCE = 38;
-const MAX_DISTANCE = 200;
-const ROTATE_SPEED_MOUSE = 0.004;
-const ROTATE_SPEED_TOUCH = 0.003;
-const WHEEL_SPEED_PX = 0.09;
-const WHEEL_SPEED_LINE = 3;
-const MIN_PITCH = degToRad(-85);
-const MAX_PITCH = degToRad(-15);
-
-const canvas = document.getElementById("viewport");
-const gl = canvas.getContext("webgl2", { antialias: true, depth: true });
-if (!gl) {
-  throw new Error("当前浏览器不支持 WebGL2，请升级或更换浏览器。");
-}
-
-const statusEl = document.getElementById("status");
-const remainingEl = document.getElementById("remaining");
-const purchasedEl = document.getElementById("purchased");
-
-gl.clearColor(0.01, 0.02, 0.05, 1);
-gl.enable(gl.DEPTH_TEST);
-gl.depthFunc(gl.LEQUAL);
-gl.disable(gl.CULL_FACE);
-
-gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-
-// --------- 数学与矩阵工具 ---------
 function degToRad(deg) {
   return (deg * Math.PI) / 180;
 }
@@ -38,6 +5,37 @@ function degToRad(deg) {
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
+
+const PARK_SIZE = 60;
+const EXPANSION_RING = 1; // 木栅栏外一圈可购格
+const WORLD_SIZE = PARK_SIZE + EXPANSION_RING * 2;
+const HALF_WORLD = WORLD_SIZE / 2;
+const TOTAL_PURCHASABLE = WORLD_SIZE * WORLD_SIZE - PARK_SIZE * PARK_SIZE;
+
+const MIN_DISTANCE = 38;
+const MAX_DISTANCE = 200;
+const MIN_PITCH = degToRad(20);
+const MAX_PITCH = degToRad(80);
+const ROTATE_SPEED_MOUSE = 0.004;
+const ROTATE_SPEED_TOUCH = 0.003;
+const WHEEL_SPEED_PX = 0.09;
+const WHEEL_SPEED_LINE = 3;
+
+const canvas = document.getElementById("viewport");
+const gl = canvas.getContext("webgl2", { antialias: true, depth: true });
+if (!gl) {
+  throw new Error("当前浏览器不支持 WebGL2，请升级或更换浏览器。");
+}
+
+gl.clearColor(0.01, 0.02, 0.05, 1);
+gl.enable(gl.DEPTH_TEST);
+gl.depthFunc(gl.LEQUAL);
+gl.disable(gl.CULL_FACE);
+gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
+const statusEl = document.getElementById("status");
+const remainingEl = document.getElementById("remaining");
+const purchasedEl = document.getElementById("purchased");
 
 const Mat4 = {
   create() {
@@ -111,43 +109,44 @@ const Mat4 = {
     const m20 = m[8], m21 = m[9], m22 = m[10], m23 = m[11];
     const m30 = m[12], m31 = m[13], m32 = m[14], m33 = m[15];
 
-    const tmp0 = m22 * m33 - m23 * m32;
-    const tmp1 = m21 * m33 - m23 * m31;
-    const tmp2 = m21 * m32 - m22 * m31;
-    const tmp3 = m20 * m33 - m23 * m30;
-    const tmp4 = m20 * m32 - m22 * m30;
-    const tmp5 = m20 * m31 - m21 * m30;
+    const p00 = m00 * m11 - m01 * m10;
+    const p01 = m00 * m12 - m02 * m10;
+    const p02 = m00 * m13 - m03 * m10;
+    const p03 = m01 * m12 - m02 * m11;
+    const p04 = m01 * m13 - m03 * m11;
+    const p05 = m02 * m13 - m03 * m12;
+    const p06 = m20 * m31 - m21 * m30;
+    const p07 = m20 * m32 - m22 * m30;
+    const p08 = m20 * m33 - m23 * m30;
+    const p09 = m21 * m32 - m22 * m31;
+    const p10 = m21 * m33 - m23 * m31;
+    const p11 = m22 * m33 - m23 * m32;
 
-    const cof0 = +(m11 * tmp0 - m12 * tmp1 + m13 * tmp2);
-    const cof1 = -(m10 * tmp0 - m12 * tmp3 + m13 * tmp4);
-    const cof2 = +(m10 * tmp1 - m11 * tmp3 + m13 * tmp5);
-    const cof3 = -(m10 * tmp2 - m11 * tmp4 + m12 * tmp5);
-
-    const det = m00 * cof0 + m01 * cof1 + m02 * cof2 + m03 * cof3;
+    const det = p00 * p11 - p01 * p10 + p02 * p09 + p03 * p08 - p04 * p07 + p05 * p06;
     if (Math.abs(det) < 1e-8) {
       return null;
     }
     const invDet = 1 / det;
 
-    out[0] = cof0 * invDet;
-    out[1] = (-(m01 * tmp0 - m02 * tmp1 + m03 * tmp2)) * invDet;
-    out[2] = ((m31 * (m02 * m13 - m03 * m12) - m32 * (m01 * m13 - m03 * m11) + m33 * (m01 * m12 - m02 * m11))) * invDet;
-    out[3] = (-(m21 * (m02 * m13 - m03 * m12) - m22 * (m01 * m13 - m03 * m11) + m23 * (m01 * m12 - m02 * m11))) * invDet;
+    out[0] = (m11 * p11 - m12 * p10 + m13 * p09) * invDet;
+    out[1] = (m02 * p10 - m01 * p11 - m03 * p09) * invDet;
+    out[2] = (m31 * p05 - m32 * p04 + m33 * p03) * invDet;
+    out[3] = (m22 * p04 - m21 * p05 - m23 * p03) * invDet;
 
-    out[4] = cof1 * invDet;
-    out[5] = ((m00 * tmp0 - m02 * tmp3 + m03 * tmp4)) * invDet;
-    out[6] = (-(m30 * (m02 * m13 - m03 * m12) - m32 * (m00 * m13 - m03 * m10) + m33 * (m00 * m12 - m02 * m10))) * invDet;
-    out[7] = ((m20 * (m02 * m13 - m03 * m12) - m22 * (m00 * m13 - m03 * m10) + m23 * (m00 * m12 - m02 * m10))) * invDet;
+    out[4] = (m12 * p08 - m10 * p11 - m13 * p07) * invDet;
+    out[5] = (m00 * p11 - m02 * p08 + m03 * p07) * invDet;
+    out[6] = (m32 * p02 - m30 * p05 - m33 * p01) * invDet;
+    out[7] = (m20 * p05 - m22 * p02 + m23 * p01) * invDet;
 
-    out[8] = cof2 * invDet;
-    out[9] = (-(m00 * tmp1 - m01 * tmp3 + m03 * tmp5)) * invDet;
-    out[10] = ((m30 * (m01 * m13 - m03 * m11) - m31 * (m00 * m13 - m03 * m10) + m33 * (m00 * m11 - m01 * m10))) * invDet;
-    out[11] = (-(m20 * (m01 * m13 - m03 * m11) - m21 * (m00 * m13 - m03 * m10) + m23 * (m00 * m11 - m01 * m10))) * invDet;
+    out[8] = (m10 * p10 - m11 * p08 + m13 * p06) * invDet;
+    out[9] = (m01 * p08 - m00 * p10 - m03 * p06) * invDet;
+    out[10] = (m30 * p04 - m31 * p02 + m33 * p00) * invDet;
+    out[11] = (m21 * p02 - m20 * p04 - m23 * p00) * invDet;
 
-    out[12] = cof3 * invDet;
-    out[13] = ((m00 * tmp2 - m01 * tmp4 + m02 * tmp5)) * invDet;
-    out[14] = (-(m30 * (m01 * m12 - m02 * m11) - m31 * (m00 * m12 - m02 * m10) + m32 * (m00 * m11 - m01 * m10))) * invDet;
-    out[15] = ((m20 * (m01 * m12 - m02 * m11) - m21 * (m00 * m12 - m02 * m10) + m22 * (m00 * m11 - m01 * m10))) * invDet;
+    out[12] = (m11 * p07 - m10 * p09 - m12 * p06) * invDet;
+    out[13] = (m00 * p09 - m01 * p07 + m02 * p06) * invDet;
+    out[14] = (m31 * p01 - m30 * p03 - m32 * p00) * invDet;
+    out[15] = (m20 * p03 - m21 * p01 + m22 * p00) * invDet;
 
     return out;
   },
@@ -200,26 +199,11 @@ const Mat4 = {
   },
 };
 
-function transformClipToWorld(matrix, x, y, z) {
-  const clip = [x, y, z, 1];
-  const out = [
-    matrix[0] * clip[0] + matrix[4] * clip[1] + matrix[8] * clip[2] + matrix[12] * clip[3],
-    matrix[1] * clip[0] + matrix[5] * clip[1] + matrix[9] * clip[2] + matrix[13] * clip[3],
-    matrix[2] * clip[0] + matrix[6] * clip[1] + matrix[10] * clip[2] + matrix[14] * clip[3],
-    matrix[3] * clip[0] + matrix[7] * clip[1] + matrix[11] * clip[2] + matrix[15] * clip[3],
-  ];
-  if (Math.abs(out[3]) < 1e-6) {
-    return null;
-  }
-  return [out[0] / out[3], out[1] / out[3], out[2] / out[3]];
-}
-
-// --------- 相机与指针交互 ---------
 class OrbitCamera {
   constructor() {
     this.distance = 120;
-    this.yaw = degToRad(-130);
-    this.pitch = degToRad(-30);
+    this.yaw = degToRad(-135);
+    this.pitch = degToRad(55);
     this.target = [0, 0, 0];
     this.position = [0, 0, 0];
     this.view = Mat4.create();
@@ -230,7 +214,7 @@ class OrbitCamera {
 
   rotate(deltaX, deltaY, speed) {
     this.yaw += deltaX * speed;
-    this.pitch = clamp(this.pitch + deltaY * speed, MIN_PITCH, MAX_PITCH);
+    this.pitch = clamp(this.pitch - deltaY * speed, MIN_PITCH, MAX_PITCH);
   }
 
   dolly(delta) {
@@ -343,6 +327,7 @@ function releasePointer(id) {
     dragging = false;
     canvas.classList.remove("dragging");
   }
+
   if (pointerMap.size < 2) {
     pinchBaseline = null;
     pinchDistanceStart = null;
@@ -359,7 +344,6 @@ canvas.addEventListener("wheel", (event) => {
   camera.dolly(event.deltaY * scale);
 });
 
-// --------- Shader ---------
 const vertexSource = `#version 300 es
 layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec2 aCellCoord;
@@ -511,7 +495,6 @@ function createProgram(vertexSrc, fragmentSrc) {
   return program;
 }
 
-// --------- 几何 ---------
 function buildGroundGeometry(totalSize, parkSize) {
   const positions = [];
   const cellCoords = [];
@@ -555,25 +538,26 @@ function buildGroundGeometry(totalSize, parkSize) {
   };
 }
 
-function buildFenceGeometry(parkSize) {
+function buildFenceGeometry(bounds) {
   const positions = [];
   const cellCoords = [];
   const parities = [];
   const types = [];
-  const half = parkSize / 2;
   const height = 4;
   const offset = 0.02;
+  const minX = bounds.minX - offset;
+  const maxX = bounds.maxX + offset;
+  const minZ = bounds.minZ - offset;
+  const maxZ = bounds.maxZ + offset;
 
   function pushWallZ(zPos) {
-    const xStart = -half;
-    const xEnd = half;
     positions.push(
-      xStart, 0, zPos,
-      xEnd, 0, zPos,
-      xEnd, height, zPos,
-      xStart, 0, zPos,
-      xEnd, height, zPos,
-      xStart, height, zPos
+      minX, 0, zPos,
+      maxX, 0, zPos,
+      maxX, height, zPos,
+      minX, 0, zPos,
+      maxX, height, zPos,
+      minX, height, zPos
     );
     cellCoords.push(
       0, 0,
@@ -590,15 +574,13 @@ function buildFenceGeometry(parkSize) {
   }
 
   function pushWallX(xPos) {
-    const zStart = -half;
-    const zEnd = half;
     positions.push(
-      xPos, 0, zStart,
-      xPos, 0, zEnd,
-      xPos, height, zEnd,
-      xPos, 0, zStart,
-      xPos, height, zEnd,
-      xPos, height, zStart
+      xPos, 0, minZ,
+      xPos, 0, maxZ,
+      xPos, height, maxZ,
+      xPos, 0, minZ,
+      xPos, height, maxZ,
+      xPos, height, minZ
     );
     cellCoords.push(
       0, 0,
@@ -614,10 +596,10 @@ function buildFenceGeometry(parkSize) {
     }
   }
 
-  pushWallZ(half + offset);
-  pushWallZ(-half - offset);
-  pushWallX(half + offset);
-  pushWallX(-half - offset);
+  pushWallZ(maxZ);
+  pushWallZ(minZ);
+  pushWallX(maxX);
+  pushWallX(minX);
 
   return {
     positions: new Float32Array(positions),
@@ -628,49 +610,73 @@ function buildFenceGeometry(parkSize) {
   };
 }
 
-const groundGeometry = buildGroundGeometry(WORLD_SIZE, PARK_SIZE);
-const fenceGeometry = buildFenceGeometry(PARK_SIZE);
-const program = createProgram(vertexSource, fragmentSource);
-
-gl.useProgram(program);
-
 function bindGeometry(geometry) {
   const vao = gl.createVertexArray();
   if (!vao) {
     throw new Error("无法创建 VAO");
   }
   gl.bindVertexArray(vao);
+  const buffers = [];
 
   const positionBuffer = gl.createBuffer();
+  buffers.push(positionBuffer);
   gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
   gl.bufferData(gl.ARRAY_BUFFER, geometry.positions, gl.STATIC_DRAW);
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
 
   const coordBuffer = gl.createBuffer();
+  buffers.push(coordBuffer);
   gl.bindBuffer(gl.ARRAY_BUFFER, coordBuffer);
   gl.bufferData(gl.ARRAY_BUFFER, geometry.cellCoords, gl.STATIC_DRAW);
   gl.enableVertexAttribArray(1);
   gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 0, 0);
 
   const parityBuffer = gl.createBuffer();
+  buffers.push(parityBuffer);
   gl.bindBuffer(gl.ARRAY_BUFFER, parityBuffer);
   gl.bufferData(gl.ARRAY_BUFFER, geometry.parities, gl.STATIC_DRAW);
   gl.enableVertexAttribArray(2);
   gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 0, 0);
 
   const typeBuffer = gl.createBuffer();
+  buffers.push(typeBuffer);
   gl.bindBuffer(gl.ARRAY_BUFFER, typeBuffer);
   gl.bufferData(gl.ARRAY_BUFFER, geometry.types, gl.STATIC_DRAW);
   gl.enableVertexAttribArray(3);
   gl.vertexAttribPointer(3, 1, gl.FLOAT, false, 0, 0);
 
   gl.bindVertexArray(null);
-  return { vao, vertexCount: geometry.vertexCount };
+  return { vao, vertexCount: geometry.vertexCount, buffers };
 }
 
+function deleteMesh(mesh) {
+  if (!mesh) {
+    return;
+  }
+  gl.deleteVertexArray(mesh.vao);
+  mesh.buffers.forEach((buffer) => gl.deleteBuffer(buffer));
+}
+
+const occupiedBounds = {
+  minX: -PARK_SIZE / 2,
+  maxX: PARK_SIZE / 2,
+  minZ: -PARK_SIZE / 2,
+  maxZ: PARK_SIZE / 2,
+};
+
+const groundGeometry = buildGroundGeometry(WORLD_SIZE, PARK_SIZE);
 const groundMesh = bindGeometry(groundGeometry);
-const fenceMesh = bindGeometry(fenceGeometry);
+
+function createFenceMesh(bounds) {
+  const geometry = buildFenceGeometry(bounds);
+  return bindGeometry(geometry);
+}
+
+let fenceMesh = createFenceMesh(occupiedBounds);
+
+const program = createProgram(vertexSource, fragmentSource);
+gl.useProgram(program);
 
 const purchaseState = new Uint8Array(WORLD_SIZE * WORLD_SIZE);
 const purchaseTexture = gl.createTexture();
@@ -696,8 +702,6 @@ gl.texImage2D(
   purchaseState
 );
 
-gl.useProgram(program);
-
 const uniforms = {
   viewProjection: gl.getUniformLocation(program, "uViewProjection"),
   worldHalf: gl.getUniformLocation(program, "uWorldHalf"),
@@ -709,11 +713,9 @@ gl.uniform1f(uniforms.worldHalf, HALF_WORLD);
 gl.uniform1f(uniforms.worldSize, WORLD_SIZE);
 gl.uniform1i(uniforms.purchaseState, 0);
 
-gl.bindVertexArray(null);
-
 const purchasedCells = new Set();
 const ringOffset = (WORLD_SIZE - PARK_SIZE) / 2;
-let inverseViewProjection = null;
+let inverseViewProjection = camera.inverseViewProjection;
 
 function updatePurchaseTexture(x, z, purchased) {
   const index = z * WORLD_SIZE + x;
@@ -753,11 +755,15 @@ function render() {
   inverseViewProjection = camera.inverseViewProjection;
   gl.uniformMatrix4fv(uniforms.viewProjection, false, camera.viewProjection);
 
-  gl.bindVertexArray(groundMesh.vao);
-  gl.drawArrays(gl.TRIANGLES, 0, groundMesh.vertexCount);
+  if (groundMesh) {
+    gl.bindVertexArray(groundMesh.vao);
+    gl.drawArrays(gl.TRIANGLES, 0, groundMesh.vertexCount);
+  }
 
-  gl.bindVertexArray(fenceMesh.vao);
-  gl.drawArrays(gl.TRIANGLES, 0, fenceMesh.vertexCount);
+  if (fenceMesh) {
+    gl.bindVertexArray(fenceMesh.vao);
+    gl.drawArrays(gl.TRIANGLES, 0, fenceMesh.vertexCount);
+  }
 
   gl.bindVertexArray(null);
   requestAnimationFrame(render);
@@ -773,6 +779,23 @@ function clipSpaceFromPointer(event) {
   const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   const y = ((event.clientY - rect.top) / rect.height) * -2 + 1;
   return { x, y };
+}
+
+function transformClipToWorld(matrix, x, y, z) {
+  if (!matrix) {
+    return null;
+  }
+  const clip = [x, y, z, 1];
+  const out = [
+    matrix[0] * clip[0] + matrix[4] * clip[1] + matrix[8] * clip[2] + matrix[12] * clip[3],
+    matrix[1] * clip[0] + matrix[5] * clip[1] + matrix[9] * clip[2] + matrix[13] * clip[3],
+    matrix[2] * clip[0] + matrix[6] * clip[1] + matrix[10] * clip[2] + matrix[14] * clip[3],
+    matrix[3] * clip[0] + matrix[7] * clip[1] + matrix[11] * clip[2] + matrix[15] * clip[3],
+  ];
+  if (Math.abs(out[3]) < 1e-6) {
+    return null;
+  }
+  return [out[0] / out[3], out[1] / out[3], out[2] / out[3]];
 }
 
 function pickCell(event) {
@@ -822,6 +845,22 @@ function isPurchasable(cell) {
   );
 }
 
+function expandBoundsWithCell(bounds, cell) {
+  const worldX0 = cell.x - HALF_WORLD;
+  const worldZ0 = cell.z - HALF_WORLD;
+  const worldX1 = worldX0 + 1;
+  const worldZ1 = worldZ0 + 1;
+  bounds.minX = Math.min(bounds.minX, worldX0);
+  bounds.maxX = Math.max(bounds.maxX, worldX1);
+  bounds.minZ = Math.min(bounds.minZ, worldZ0);
+  bounds.maxZ = Math.max(bounds.maxZ, worldZ1);
+}
+
+function rebuildFenceBounds() {
+  deleteMesh(fenceMesh);
+  fenceMesh = createFenceMesh(occupiedBounds);
+}
+
 function updateStatus(message) {
   statusEl.textContent = message;
   purchasedEl.textContent = purchasedCells.size.toString();
@@ -836,9 +875,10 @@ canvas.addEventListener("click", (event) => {
     return;
   }
   if (!isPurchasable(cell)) {
-    updateStatus("核心 60 m × 60 m 公园区域已开放，无需购买。");
+    updateStatus("核心 60 m × 60 m 公园区域已开放，此处无需购买。");
     return;
   }
+
   const key = `${cell.x}-${cell.z}`;
   if (purchasedCells.has(key)) {
     updateStatus(`扩展格 (${cell.x + 1}, ${cell.z + 1}) 已购入。`);
@@ -855,6 +895,8 @@ canvas.addEventListener("click", (event) => {
 
   purchasedCells.add(key);
   updatePurchaseTexture(cell.x, cell.z, true);
+  expandBoundsWithCell(occupiedBounds, cell);
+  rebuildFenceBounds();
   updateStatus(`成功购入扩展格 (${cell.x + 1}, ${cell.z + 1})！`);
 });
 
