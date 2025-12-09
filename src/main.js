@@ -23,6 +23,7 @@ uniform vec2 uResolution;
 
 out vec2 vCellCoord;
 out float vParity;
+out vec2 vCellUv;
 
 void main() {
   float aspect = uResolution.y / max(uResolution.x, 1.0);
@@ -30,6 +31,8 @@ void main() {
   gl_Position = vec4(normalized, 0.0, 1.0);
   vCellCoord = aCellCoord;
   vParity = aParity;
+  vec2 worldPos = vec2(aPosition.x + uGridHalf, aPosition.z + uGridHalf);
+  vCellUv = fract(worldPos);
 }
 `;
 
@@ -38,11 +41,39 @@ precision highp float;
 
 in vec2 vCellCoord;
 in float vParity;
+in vec2 vCellUv;
 
 uniform sampler2D uPurchaseState;
 uniform float uGridSize;
 
 out vec4 outColor;
+
+float hash(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+}
+
+float noise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  float a = hash(i);
+  float b = hash(i + vec2(1.0, 0.0));
+  float c = hash(i + vec2(0.0, 1.0));
+  float d = hash(i + vec2(1.0, 1.0));
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+}
+
+float fbm(vec2 p) {
+  float value = 0.0;
+  float amplitude = 0.5;
+  float frequency = 1.0;
+  for (int i = 0; i < 4; i++) {
+    value += amplitude * noise(p * frequency);
+    frequency *= 2.0;
+    amplitude *= 0.5;
+  }
+  return value;
+}
 
 void main() {
   vec2 uv = (vCellCoord + 0.5) / vec2(uGridSize);
@@ -51,8 +82,16 @@ void main() {
   vec3 darkColor = vec3(0.07, 0.11, 0.18);
   vec3 lightColor = vec3(0.18, 0.25, 0.35);
   vec3 baseColor = mix(darkColor, lightColor, isLight);
+
+  vec2 grassUv = vCellUv * 4.0 + vCellCoord * 0.05;
+  float blade = fbm(grassUv * 3.0 + vec2(uv.y, uv.x) * 10.0);
+  float direction = smoothstep(0.2, 0.8, abs(sin((grassUv.x + grassUv.y) * 6.2831)));
+  vec3 grassTint = vec3(0.04, 0.13, 0.06) * blade;
+  vec3 grassShadow = vec3(-0.03, -0.05, -0.02) * direction;
+  vec3 grassColor = clamp(baseColor + grassTint + grassShadow, 0.0, 1.0);
+
   vec3 purchasedColor = vec3(0.2, 0.65, 0.35);
-  vec3 finalColor = mix(baseColor, purchasedColor, purchased);
+  vec3 finalColor = mix(grassColor, purchasedColor, purchased);
   outColor = vec4(finalColor, 1.0);
 }
 `;
