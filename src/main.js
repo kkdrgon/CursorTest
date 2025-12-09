@@ -89,6 +89,8 @@ function updatePlayerWorldPosition() {
 
 updatePlayerWorldPosition();
 
+let playerMoveIntensity = 0;
+
 const inputState = {
   forward: false,
   back: false,
@@ -158,7 +160,12 @@ function updatePlayerPosition(deltaSeconds) {
   const moveZ =
     (inputState.forward ? 1 : 0) - (inputState.back ? 1 : 0);
 
+  const prevX = player.worldX;
+  const prevZ = player.worldZ;
+
   if (moveX === 0 && moveZ === 0) {
+    const decay = Math.min(deltaSeconds * 6.0, 1.0);
+    playerMoveIntensity += (0.0 - playerMoveIntensity) * decay;
     return;
   }
 
@@ -183,13 +190,21 @@ function updatePlayerPosition(deltaSeconds) {
 
   const currentX = player.worldX;
   const currentZ = player.worldZ;
-  if (trySetPlayerPosition(targetX, targetZ)) {
-    return;
+  if (!trySetPlayerPosition(targetX, targetZ)) {
+    if (!trySetPlayerPosition(currentX, targetZ)) {
+      trySetPlayerPosition(targetX, currentZ);
+    }
   }
-  if (trySetPlayerPosition(currentX, targetZ)) {
-    return;
-  }
-  trySetPlayerPosition(targetX, currentZ);
+
+  const dx = player.worldX - prevX;
+  const dz = player.worldZ - prevZ;
+  const distanceMoved = Math.hypot(dx, dz);
+  const targetIntensity =
+    deltaSeconds > 1e-4
+      ? Math.min(distanceMoved / (PLAYER_SPEED * deltaSeconds + 1e-5), 1.0)
+      : 0.0;
+  const blend = Math.min(deltaSeconds * 8.0, 1.0);
+  playerMoveIntensity += (targetIntensity - playerMoveIntensity) * blend;
 }
 
 const Mat4 = {
@@ -512,19 +527,61 @@ layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec2 aCellCoord;
 layout(location = 2) in float aParity;
 layout(location = 3) in float aType;
+layout(location = 4) in float aSegment;
 
 uniform mat4 uViewProjection;
 uniform float uWorldHalf;
 uniform vec3 uPlayerOffset;
+uniform float uTime;
+uniform float uMoveIntensity;
 
 out vec2 vCellCoord;
 out float vParity;
 out vec2 vCellUv;
 out float vType;
 
+const float PI = 3.14159265;
+
+vec3 rotateAroundX(vec3 point, float angle, float pivotY) {
+  float s = sin(angle);
+  float c = cos(angle);
+  float y = point.y - pivotY;
+  float z = point.z;
+  float newY = y * c - z * s;
+  float newZ = y * s + z * c;
+  return vec3(point.x, newY + pivotY, newZ);
+}
+
+vec3 applyStickAnimation(vec3 pos, float segment) {
+  float movePhase = uMoveIntensity;
+  float cycle = uTime * 6.0;
+  if (segment < 0.5) {
+    return pos;
+  }
+
+  if (segment < 1.5) {
+    pos.y += sin(cycle * 0.5) * 0.03 * movePhase;
+  } else if (segment < 2.5) {
+    pos.y += sin(cycle * 0.5 + 0.3) * 0.02 * movePhase;
+  } else if (segment < 3.5) {
+    pos = rotateAroundX(pos, sin(cycle) * 0.6 * movePhase, 0.9);
+  } else if (segment < 4.5) {
+    pos = rotateAroundX(pos, sin(cycle + PI) * 0.6 * movePhase, 0.9);
+  } else if (segment < 5.5) {
+    pos = rotateAroundX(pos, sin(cycle + PI) * 0.8 * movePhase, 0.6);
+  } else {
+    pos = rotateAroundX(pos, sin(cycle) * 0.8 * movePhase, 0.6);
+  }
+
+  float idle = sin(uTime * 2.0) * 0.01;
+  pos.y += idle * (segment < 2.5 ? 1.0 : 0.5);
+  return pos;
+}
+
 void main() {
   vec3 worldPosition = aPosition;
   if (aType > 2.5) {
+    worldPosition = applyStickAnimation(worldPosition, aSegment);
     worldPosition += uPlayerOffset;
   }
   gl_Position = uViewProjection * vec4(worldPosition, 1.0);
@@ -694,12 +751,14 @@ function buildGroundGeometry(totalSize, parkSize) {
     }
   }
 
+  const vertexCount = positions.length / 3;
   return {
     positions: new Float32Array(positions),
     cellCoords: new Float32Array(cellCoords),
     parities: new Float32Array(parities),
     types: new Float32Array(types),
-    vertexCount: positions.length / 3,
+    segments: new Float32Array(vertexCount),
+    vertexCount,
   };
 }
 
@@ -873,6 +932,7 @@ function buildFenceGeometryFromOccupancy() {
     cellCoords: new Float32Array(cellCoords),
     parities: new Float32Array(parities),
     types: new Float32Array(types),
+    segments: new Float32Array(positions.length / 3),
     vertexCount: positions.length / 3,
   };
 }
@@ -882,20 +942,22 @@ function buildPlayerGeometry() {
   const cellCoords = [];
   const parities = [];
   const types = [];
+  const segments = [];
 
-  function addBox(minX, minY, minZ, maxX, maxY, maxZ) {
+  const SEG_TORSO = 1.0;
+  const SEG_HEAD = 2.0;
+  const SEG_ARM_LEFT = 3.0;
+  const SEG_ARM_RIGHT = 4.0;
+  const SEG_LEG_LEFT = 5.0;
+  const SEG_LEG_RIGHT = 6.0;
+
+  function addBox(minX, minY, minZ, maxX, maxY, maxZ, segmentId) {
     const faces = [
-      // front
       [[minX, minY, maxZ], [maxX, minY, maxZ], [maxX, maxY, maxZ], [minX, maxY, maxZ]],
-      // back
       [[maxX, minY, minZ], [minX, minY, minZ], [minX, maxY, minZ], [maxX, maxY, minZ]],
-      // left
       [[minX, minY, minZ], [minX, minY, maxZ], [minX, maxY, maxZ], [minX, maxY, minZ]],
-      // right
       [[maxX, minY, maxZ], [maxX, minY, minZ], [maxX, maxY, minZ], [maxX, maxY, maxZ]],
-      // top
       [[minX, maxY, maxZ], [maxX, maxY, maxZ], [maxX, maxY, minZ], [minX, maxY, minZ]],
-      // bottom
       [[minX, minY, minZ], [maxX, minY, minZ], [maxX, minY, maxZ], [minX, minY, maxZ]],
     ];
     for (const face of faces) {
@@ -914,26 +976,24 @@ function buildPlayerGeometry() {
       for (let i = 0; i < 6; i += 1) {
         parities.push(0);
         types.push(3);
+        segments.push(segmentId);
       }
     }
   }
 
-  // Torso
-  addBox(-0.06, 0.5, -0.04, 0.06, 1.2, 0.04);
-  // Head
-  addBox(-0.1, 1.2, -0.1, 0.1, 1.4, 0.1);
-  // Arms
-  addBox(-0.6, 0.85, -0.025, 0.6, 0.93, 0.025);
-  // Left leg
-  addBox(-0.12, 0.0, -0.03, -0.04, 0.6, 0.03);
-  // Right leg
-  addBox(0.04, 0.0, -0.03, 0.12, 0.6, 0.03);
+  addBox(-0.06, 0.5, -0.04, 0.06, 1.2, 0.04, SEG_TORSO);
+  addBox(-0.1, 1.2, -0.1, 0.1, 1.4, 0.1, SEG_HEAD);
+  addBox(-0.6, 0.85, -0.025, -0.02, 0.93, 0.025, SEG_ARM_LEFT);
+  addBox(0.02, 0.85, -0.025, 0.6, 0.93, 0.025, SEG_ARM_RIGHT);
+  addBox(-0.12, 0.0, -0.03, -0.04, 0.6, 0.03, SEG_LEG_LEFT);
+  addBox(0.04, 0.0, -0.03, 0.12, 0.6, 0.03, SEG_LEG_RIGHT);
 
   return {
     positions: new Float32Array(positions),
     cellCoords: new Float32Array(cellCoords),
     parities: new Float32Array(parities),
     types: new Float32Array(types),
+    segments: new Float32Array(segments),
     vertexCount: positions.length / 3,
   };
 }
@@ -973,6 +1033,16 @@ function bindGeometry(geometry) {
   gl.bufferData(gl.ARRAY_BUFFER, geometry.types, gl.STATIC_DRAW);
   gl.enableVertexAttribArray(3);
   gl.vertexAttribPointer(3, 1, gl.FLOAT, false, 0, 0);
+
+  const segmentBuffer = gl.createBuffer();
+  buffers.push(segmentBuffer);
+  gl.bindBuffer(gl.ARRAY_BUFFER, segmentBuffer);
+  const segmentData =
+    geometry.segments ||
+    new Float32Array(geometry.vertexCount);
+  gl.bufferData(gl.ARRAY_BUFFER, segmentData, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(4);
+  gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 0, 0);
 
   gl.bindVertexArray(null);
   return { vao, vertexCount: geometry.vertexCount, buffers };
@@ -1036,12 +1106,16 @@ const uniforms = {
   worldSize: gl.getUniformLocation(program, "uWorldSize"),
   purchaseState: gl.getUniformLocation(program, "uPurchaseState"),
   playerOffset: gl.getUniformLocation(program, "uPlayerOffset"),
+  time: gl.getUniformLocation(program, "uTime"),
+  moveIntensity: gl.getUniformLocation(program, "uMoveIntensity"),
 };
 
 gl.uniform1f(uniforms.worldHalf, HALF_WORLD);
 gl.uniform1f(uniforms.worldSize, WORLD_SIZE);
 gl.uniform1i(uniforms.purchaseState, 0);
 gl.uniform3f(uniforms.playerOffset, 0, 0, 0);
+gl.uniform1f(uniforms.time, 0);
+gl.uniform1f(uniforms.moveIntensity, 0);
 
 const purchasedCells = new Set();
 let inverseViewProjection = camera.inverseViewProjection;
@@ -1093,6 +1167,8 @@ function render(time) {
   camera.update(aspect);
   inverseViewProjection = camera.inverseViewProjection;
   gl.uniformMatrix4fv(uniforms.viewProjection, false, camera.viewProjection);
+  gl.uniform1f(uniforms.time, time * 0.001);
+  gl.uniform1f(uniforms.moveIntensity, playerMoveIntensity);
 
   gl.bindVertexArray(groundMesh.vao);
   gl.uniform3f(uniforms.playerOffset, 0, 0, 0);
