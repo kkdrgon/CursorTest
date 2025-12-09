@@ -17,6 +17,7 @@ const vertexSource = `#version 300 es
 layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec2 aCellCoord;
 layout(location = 2) in float aParity;
+layout(location = 3) in float aType;
 
 uniform float uGridHalf;
 uniform vec2 uResolution;
@@ -24,6 +25,7 @@ uniform vec2 uResolution;
 out vec2 vCellCoord;
 out float vParity;
 out vec2 vCellUv;
+out float vType;
 
 void main() {
   float aspect = uResolution.y / max(uResolution.x, 1.0);
@@ -33,6 +35,7 @@ void main() {
   vParity = aParity;
   vec2 worldPos = vec2(aPosition.x + uGridHalf, aPosition.z + uGridHalf);
   vCellUv = fract(worldPos);
+  vType = aType;
 }
 `;
 
@@ -42,6 +45,7 @@ precision highp float;
 in vec2 vCellCoord;
 in float vParity;
 in vec2 vCellUv;
+in float vType;
 
 uniform sampler2D uPurchaseState;
 uniform float uGridSize;
@@ -76,6 +80,18 @@ float fbm(vec2 p) {
 }
 
 void main() {
+  if (vType > 0.5) {
+    vec2 woodUv = vCellCoord * 3.0 + vCellUv * 5.0;
+    float grain = abs(sin((woodUv.x + woodUv.y * 0.35) * 12.0));
+    float detail = fbm(woodUv * 6.0);
+    vec3 woodBase = vec3(0.35, 0.21, 0.09);
+    vec3 woodHighlight = vec3(0.55, 0.37, 0.18);
+    vec3 woodColor = mix(woodBase, woodHighlight, grain * 0.6 + detail * 0.4);
+    woodColor += vec3(0.03, 0.02, 0.01) * smoothstep(0.2, 0.8, sin(woodUv.y * 25.0));
+    outColor = vec4(woodColor, 1.0);
+    return;
+  }
+
   vec2 uv = (vCellCoord + 0.5) / vec2(uGridSize);
   float purchased = texture(uPurchaseState, uv).r;
   float isLight = clamp(mod(vParity, 2.0), 0.0, 1.0);
@@ -135,6 +151,7 @@ function buildGridGeometry(size) {
   const positions = [];
   const cellCoords = [];
   const parities = [];
+  const types = [];
   const half = size / 2;
 
   for (let x = 0; x < size; x += 1) {
@@ -149,11 +166,13 @@ function buildGridGeometry(size) {
       positions.push(x0, 0, z0, x1, 0, z0, x1, 0, z1);
       cellCoords.push(x, z, x, z, x, z);
       parities.push(parity, parity, parity);
+      types.push(0, 0, 0);
 
       // 三角形 2
       positions.push(x0, 0, z0, x1, 0, z1, x0, 0, z1);
       cellCoords.push(x, z, x, z, x, z);
       parities.push(parity, parity, parity);
+      types.push(0, 0, 0);
     }
   }
 
@@ -161,19 +180,69 @@ function buildGridGeometry(size) {
     positions: new Float32Array(positions),
     cellCoords: new Float32Array(cellCoords),
     parities: new Float32Array(parities),
+    types: new Float32Array(types),
+    vertexCount: positions.length / 3,
+  };
+}
+
+function buildFenceGeometry(size) {
+  const positions = [];
+  const cellCoords = [];
+  const parities = [];
+  const types = [];
+  const half = size / 2;
+  const fenceDepth = 0.8;
+
+  function pushQuad(x0, z0, x1, z1) {
+    const vertices = [
+      [x0, z0],
+      [x1, z0],
+      [x1, z1],
+      [x0, z1],
+    ];
+    const triOrder = [
+      [0, 1, 2],
+      [0, 2, 3],
+    ];
+    const spanX = Math.max(Math.abs(x1 - x0), 0.0001);
+    const spanZ = Math.max(Math.abs(z1 - z0), 0.0001);
+
+    for (const tri of triOrder) {
+      for (const idx of tri) {
+        const [vx, vz] = vertices[idx];
+        positions.push(vx, 0, vz);
+        const u = (vx - x0) / spanX;
+        const v = (vz - z0) / spanZ;
+        cellCoords.push(u, v);
+        parities.push(0);
+        types.push(1);
+      }
+    }
+  }
+
+  const outer = half + fenceDepth;
+  const inner = -outer;
+
+  // 顶部和底部
+  pushQuad(inner, half, outer, half + fenceDepth);
+  pushQuad(inner, -half - fenceDepth, outer, -half);
+
+  // 左右边
+  pushQuad(-half - fenceDepth, -half, -half, half);
+  pushQuad(half, -half, half + fenceDepth, half);
+
+  return {
+    positions: new Float32Array(positions),
+    cellCoords: new Float32Array(cellCoords),
+    parities: new Float32Array(parities),
+    types: new Float32Array(types),
     vertexCount: positions.length / 3,
   };
 }
 
 const gridGeometry = buildGridGeometry(GRID_SIZE);
+const fenceGeometry = buildFenceGeometry(GRID_SIZE);
 const program = createProgram(gl, vertexSource, fragmentSource);
-const vao = gl.createVertexArray();
-
-if (!vao) {
-  throw new Error("无法创建 VAO");
-}
-
-gl.bindVertexArray(vao);
 
 function createBufferAndAttribute({ data, location, size }) {
   const buffer = gl.createBuffer();
@@ -186,23 +255,37 @@ function createBufferAndAttribute({ data, location, size }) {
   gl.vertexAttribPointer(location, size, gl.FLOAT, false, 0, 0);
 }
 
-createBufferAndAttribute({
-  data: gridGeometry.positions,
-  location: 0,
-  size: 3,
-});
+function createVaoFromGeometry(geometry) {
+  const vaoHandle = gl.createVertexArray();
+  if (!vaoHandle) {
+    throw new Error("无法创建 VAO");
+  }
+  gl.bindVertexArray(vaoHandle);
+  createBufferAndAttribute({
+    data: geometry.positions,
+    location: 0,
+    size: 3,
+  });
+  createBufferAndAttribute({
+    data: geometry.cellCoords,
+    location: 1,
+    size: 2,
+  });
+  createBufferAndAttribute({
+    data: geometry.parities,
+    location: 2,
+    size: 1,
+  });
+  createBufferAndAttribute({
+    data: geometry.types,
+    location: 3,
+    size: 1,
+  });
+  return vaoHandle;
+}
 
-createBufferAndAttribute({
-  data: gridGeometry.cellCoords,
-  location: 1,
-  size: 2,
-});
-
-createBufferAndAttribute({
-  data: gridGeometry.parities,
-  location: 2,
-  size: 1,
-});
+const groundVao = createVaoFromGeometry(gridGeometry);
+const fenceVao = createVaoFromGeometry(fenceGeometry);
 
 const purchaseStateData = new Uint8Array(GRID_SIZE * GRID_SIZE);
 const purchaseTexture = gl.createTexture();
@@ -272,7 +355,6 @@ function render() {
   gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
 
   gl.useProgram(program);
-  gl.bindVertexArray(vao);
   gl.clearColor(0.01, 0.03, 0.06, 1.0);
   gl.clear(gl.COLOR_BUFFER_BIT);
 
@@ -281,7 +363,11 @@ function render() {
   gl.uniform2f(uniforms.resolution, gl.drawingBufferWidth, gl.drawingBufferHeight);
   gl.uniform1i(uniforms.purchaseState, 0);
 
+  gl.bindVertexArray(groundVao);
   gl.drawArrays(gl.TRIANGLES, 0, gridGeometry.vertexCount);
+
+  gl.bindVertexArray(fenceVao);
+  gl.drawArrays(gl.TRIANGLES, 0, fenceGeometry.vertexCount);
 
   requestAnimationFrame(render);
 }
