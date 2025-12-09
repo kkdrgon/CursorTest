@@ -11,6 +11,7 @@ const EXPANSION_RING = 1; // 木栅栏外一圈可购格
 const WORLD_SIZE = PARK_SIZE + EXPANSION_RING * 2;
 const HALF_WORLD = WORLD_SIZE / 2;
 const TOTAL_PURCHASABLE = WORLD_SIZE * WORLD_SIZE - PARK_SIZE * PARK_SIZE;
+const ringOffset = (WORLD_SIZE - PARK_SIZE) / 2;
 
 const MIN_DISTANCE = 38;
 const MAX_DISTANCE = 200;
@@ -36,6 +37,33 @@ gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 const statusEl = document.getElementById("status");
 const remainingEl = document.getElementById("remaining");
 const purchasedEl = document.getElementById("purchased");
+
+const occupancy = new Uint8Array(WORLD_SIZE * WORLD_SIZE);
+
+function cellIndex(x, z) {
+  return z * WORLD_SIZE + x;
+}
+
+function isCellOccupied(x, z) {
+  if (x < 0 || x >= WORLD_SIZE || z < 0 || z >= WORLD_SIZE) {
+    return false;
+  }
+  return occupancy[cellIndex(x, z)] === 1;
+}
+
+function markCellOccupied(cell) {
+  occupancy[cellIndex(cell.x, cell.z)] = 1;
+}
+
+(function initializeCoreOccupancy() {
+  const innerStart = ringOffset;
+  const innerEnd = WORLD_SIZE - ringOffset;
+  for (let x = innerStart; x < innerEnd; x += 1) {
+    for (let z = innerStart; z < innerEnd; z += 1) {
+      occupancy[cellIndex(x, z)] = 1;
+    }
+  }
+})();
 
 const Mat4 = {
   create() {
@@ -538,25 +566,18 @@ function buildGroundGeometry(totalSize, parkSize) {
   };
 }
 
-function buildFenceGeometry(bounds) {
+function buildFenceGeometryFromOccupancy() {
   const positions = [];
   const cellCoords = [];
   const parities = [];
   const types = [];
 
-  const offset = 0.02;
-  const minX = bounds.minX - offset;
-  const maxX = bounds.maxX + offset;
-  const minZ = bounds.minZ - offset;
-  const maxZ = bounds.maxZ + offset;
-
-  const POST_WIDTH = 0.18;
-  const POST_DEPTH = 0.25;
-  const POST_HALF = POST_WIDTH / 2;
-  const POST_HEIGHT = 3.6;
-  const RAIL_HEIGHT = 0.35;
-  const RAIL_CENTER = 1.4;
-  const MODULE_SIZE = 2;
+  const POST_SIZE = 0.1;
+  const POST_HALF = POST_SIZE / 2;
+  const POST_HEIGHT = 1.0;
+  const RAIL_THICKNESS = 0.08;
+  const RAIL_HALF = RAIL_THICKNESS / 2;
+  const RAIL_CENTER = 0.55;
 
   function pushBox(minBX, minBY, minBZ, maxBX, maxBY, maxBZ) {
     if (maxBX - minBX <= 0 || maxBY - minBY <= 0 || maxBZ - minBZ <= 0) {
@@ -595,7 +616,7 @@ function buildFenceGeometry(bounds) {
       [minBX, maxBY, maxBZ],
       "x",
       "y"
-    ); // front
+    );
     addFace(
       [maxBX, minBY, minBZ],
       [minBX, minBY, minBZ],
@@ -603,7 +624,7 @@ function buildFenceGeometry(bounds) {
       [maxBX, maxBY, minBZ],
       "x",
       "y"
-    ); // back
+    );
     addFace(
       [minBX, minBY, minBZ],
       [minBX, minBY, maxBZ],
@@ -611,7 +632,7 @@ function buildFenceGeometry(bounds) {
       [minBX, maxBY, minBZ],
       "z",
       "y"
-    ); // left
+    );
     addFace(
       [maxBX, minBY, maxBZ],
       [maxBX, minBY, minBZ],
@@ -619,7 +640,7 @@ function buildFenceGeometry(bounds) {
       [maxBX, maxBY, maxBZ],
       "z",
       "y"
-    ); // right
+    );
     addFace(
       [minBX, maxBY, maxBZ],
       [maxBX, maxBY, maxBZ],
@@ -627,7 +648,7 @@ function buildFenceGeometry(bounds) {
       [minBX, maxBY, minBZ],
       "x",
       "z"
-    ); // top
+    );
     addFace(
       [minBX, minBY, minBZ],
       [maxBX, minBY, minBZ],
@@ -635,83 +656,80 @@ function buildFenceGeometry(bounds) {
       [minBX, minBY, maxBZ],
       "x",
       "z"
-    ); // bottom
+    );
   }
 
-  function pushPostAlongX(xCenter, zPos, outward) {
-    const minBX = xCenter - POST_HALF;
-    const maxBX = xCenter + POST_HALF;
-    const minBZ = outward > 0 ? zPos : zPos - POST_DEPTH;
-    const maxBZ = outward > 0 ? zPos + POST_DEPTH : zPos;
-    pushBox(minBX, 0, minBZ, maxBX, POST_HEIGHT, maxBZ);
+  function addPost(px, pz) {
+    pushBox(
+      px - POST_HALF,
+      0,
+      pz - POST_HALF,
+      px + POST_HALF,
+      POST_HEIGHT,
+      pz + POST_HALF
+    );
   }
 
-  function pushRailAlongX(x0, x1, zPos, outward) {
-    if (x1 - x0 <= 0.01) {
-      return;
+  function addRailAlongZ(xCoord, zStart, zEnd) {
+    pushBox(
+      xCoord - RAIL_HALF,
+      RAIL_CENTER - RAIL_HALF,
+      zStart,
+      xCoord + RAIL_HALF,
+      RAIL_CENTER + RAIL_HALF,
+      zEnd
+    );
+  }
+
+  function addRailAlongX(zCoord, xStart, xEnd) {
+    pushBox(
+      xStart,
+      RAIL_CENTER - RAIL_HALF,
+      zCoord - RAIL_HALF,
+      xEnd,
+      RAIL_CENTER + RAIL_HALF,
+      zCoord + RAIL_HALF
+    );
+  }
+
+  function addEdgeAlongZ(xCoord, zStart, zEnd) {
+    addPost(xCoord, zStart);
+    addPost(xCoord, zEnd);
+    addRailAlongZ(xCoord, zStart, zEnd);
+  }
+
+  function addEdgeAlongX(zCoord, xStart, xEnd) {
+    addPost(xStart, zCoord);
+    addPost(xEnd, zCoord);
+    addRailAlongX(zCoord, xStart, xEnd);
+  }
+
+  for (let x = 0; x < WORLD_SIZE; x += 1) {
+    for (let z = 0; z < WORLD_SIZE; z += 1) {
+      if (!isCellOccupied(x, z)) {
+        continue;
+      }
+      const worldX = x - HALF_WORLD;
+      const worldZ = z - HALF_WORLD;
+      const x0 = worldX;
+      const x1 = worldX + 1;
+      const z0 = worldZ;
+      const z1 = worldZ + 1;
+
+      if (!isCellOccupied(x + 1, z)) {
+        addEdgeAlongZ(x1, z0, z1);
+      }
+      if (!isCellOccupied(x - 1, z)) {
+        addEdgeAlongZ(x0, z0, z1);
+      }
+      if (!isCellOccupied(x, z + 1)) {
+        addEdgeAlongX(z1, x0, x1);
+      }
+      if (!isCellOccupied(x, z - 1)) {
+        addEdgeAlongX(z0, x0, x1);
+      }
     }
-    const minBX = x0;
-    const maxBX = x1;
-    const minBY = RAIL_CENTER - RAIL_HEIGHT / 2;
-    const maxBY = RAIL_CENTER + RAIL_HEIGHT / 2;
-    const minBZ = outward > 0 ? zPos : zPos - POST_DEPTH;
-    const maxBZ = outward > 0 ? zPos + POST_DEPTH : zPos;
-    pushBox(minBX, minBY, minBZ, maxBX, maxBY, maxBZ);
   }
-
-  function pushPostAlongZ(zCenter, xPos, outward) {
-    const minBZ = zCenter - POST_HALF;
-    const maxBZ = zCenter + POST_HALF;
-    const minBX = outward > 0 ? xPos : xPos - POST_DEPTH;
-    const maxBX = outward > 0 ? xPos + POST_DEPTH : xPos;
-    pushBox(minBX, 0, minBZ, maxBX, POST_HEIGHT, maxBZ);
-  }
-
-  function pushRailAlongZ(z0, z1, xPos, outward) {
-    if (z1 - z0 <= 0.01) {
-      return;
-    }
-    const minBZ = z0;
-    const maxBZ = z1;
-    const minBY = RAIL_CENTER - RAIL_HEIGHT / 2;
-    const maxBY = RAIL_CENTER + RAIL_HEIGHT / 2;
-    const minBX = outward > 0 ? xPos : xPos - POST_DEPTH;
-    const maxBX = outward > 0 ? xPos + POST_DEPTH : xPos;
-    pushBox(minBX, minBY, minBZ, maxBX, maxBY, maxBZ);
-  }
-
-  function buildSideAlongX(zPos, outward) {
-    const length = maxX - minX;
-    if (length <= 0) {
-      return;
-    }
-    for (let x = minX; x < maxX; x += MODULE_SIZE) {
-      const x0 = x;
-      const x1 = Math.min(x + MODULE_SIZE, maxX);
-      pushPostAlongX(x0, zPos, outward);
-      pushPostAlongX(x1, zPos, outward);
-      pushRailAlongX(x0, x1, zPos, outward);
-    }
-  }
-
-  function buildSideAlongZ(xPos, outward) {
-    const length = maxZ - minZ;
-    if (length <= 0) {
-      return;
-    }
-    for (let z = minZ; z < maxZ; z += MODULE_SIZE) {
-      const z0 = z;
-      const z1 = Math.min(z + MODULE_SIZE, maxZ);
-      pushPostAlongZ(z0, xPos, outward);
-      pushPostAlongZ(z1, xPos, outward);
-      pushRailAlongZ(z0, z1, xPos, outward);
-    }
-  }
-
-  buildSideAlongX(maxZ, 1);
-  buildSideAlongX(minZ, -1);
-  buildSideAlongZ(maxX, 1);
-  buildSideAlongZ(minX, -1);
 
   return {
     positions: new Float32Array(positions),
@@ -770,22 +788,20 @@ function deleteMesh(mesh) {
   mesh.buffers.forEach((buffer) => gl.deleteBuffer(buffer));
 }
 
-const occupiedBounds = {
-  minX: -PARK_SIZE / 2,
-  maxX: PARK_SIZE / 2,
-  minZ: -PARK_SIZE / 2,
-  maxZ: PARK_SIZE / 2,
-};
-
 const groundGeometry = buildGroundGeometry(WORLD_SIZE, PARK_SIZE);
 const groundMesh = bindGeometry(groundGeometry);
 
-function createFenceMesh(bounds) {
-  const geometry = buildFenceGeometry(bounds);
+function createFenceMeshFromOccupancy() {
+  const geometry = buildFenceGeometryFromOccupancy();
   return bindGeometry(geometry);
 }
 
-let fenceMesh = createFenceMesh(occupiedBounds);
+let fenceMesh = createFenceMeshFromOccupancy();
+
+function rebuildFenceMesh() {
+  deleteMesh(fenceMesh);
+  fenceMesh = createFenceMeshFromOccupancy();
+}
 
 const program = createProgram(vertexSource, fragmentSource);
 gl.useProgram(program);
@@ -826,7 +842,6 @@ gl.uniform1f(uniforms.worldSize, WORLD_SIZE);
 gl.uniform1i(uniforms.purchaseState, 0);
 
 const purchasedCells = new Set();
-const ringOffset = (WORLD_SIZE - PARK_SIZE) / 2;
 let inverseViewProjection = camera.inverseViewProjection;
 
 function updatePurchaseTexture(x, z, purchased) {
@@ -957,22 +972,6 @@ function isPurchasable(cell) {
   );
 }
 
-function expandBoundsWithCell(bounds, cell) {
-  const worldX0 = cell.x - HALF_WORLD;
-  const worldZ0 = cell.z - HALF_WORLD;
-  const worldX1 = worldX0 + 1;
-  const worldZ1 = worldZ0 + 1;
-  bounds.minX = Math.min(bounds.minX, worldX0);
-  bounds.maxX = Math.max(bounds.maxX, worldX1);
-  bounds.minZ = Math.min(bounds.minZ, worldZ0);
-  bounds.maxZ = Math.max(bounds.maxZ, worldZ1);
-}
-
-function rebuildFenceBounds() {
-  deleteMesh(fenceMesh);
-  fenceMesh = createFenceMesh(occupiedBounds);
-}
-
 function updateStatus(message) {
   statusEl.textContent = message;
   purchasedEl.textContent = purchasedCells.size.toString();
@@ -1007,8 +1006,8 @@ canvas.addEventListener("click", (event) => {
 
   purchasedCells.add(key);
   updatePurchaseTexture(cell.x, cell.z, true);
-  expandBoundsWithCell(occupiedBounds, cell);
-  rebuildFenceBounds();
+  markCellOccupied(cell);
+  rebuildFenceMesh();
   updateStatus(`成功购入扩展格 (${cell.x + 1}, ${cell.z + 1})！`);
 });
 
