@@ -534,6 +534,7 @@ uniform float uWorldHalf;
 uniform vec3 uPlayerOffset;
 uniform float uTime;
 uniform float uMoveIntensity;
+uniform float uPlayerRotation;
 
 out vec2 vCellCoord;
 out float vParity;
@@ -552,6 +553,24 @@ vec3 rotateAroundX(vec3 point, float angle, float pivotY) {
   return vec3(point.x, newY + pivotY, newZ);
 }
 
+vec3 rotateAroundZ(vec3 point, float angle, float pivotX, float pivotY) {
+  float s = sin(angle);
+  float c = cos(angle);
+  float x = point.x - pivotX;
+  float y = point.y - pivotY;
+  float newX = x * c - y * s;
+  float newY = x * s + y * c;
+  return vec3(newX + pivotX, newY + pivotY, point.z);
+}
+
+vec3 rotateAroundY(vec3 point, float angle) {
+  float s = sin(angle);
+  float c = cos(angle);
+  float x = point.x;
+  float z = point.z;
+  return vec3(x * c - z * s, point.y, x * s + z * c);
+}
+
 vec3 applyStickAnimation(vec3 pos, float segment) {
   float movePhase = uMoveIntensity;
   float cycle = uTime * 6.0;
@@ -564,9 +583,13 @@ vec3 applyStickAnimation(vec3 pos, float segment) {
   } else if (segment < 2.5) {
     pos.y += sin(cycle * 0.5 + 0.3) * 0.02 * movePhase;
   } else if (segment < 3.5) {
-    pos = rotateAroundX(pos, sin(cycle) * 0.6 * movePhase, 0.9);
+    float swing = sin(cycle) * 0.6 * movePhase;
+    pos = rotateAroundX(pos, swing, 0.9);
+    pos = rotateAroundZ(pos, 0.2 * sin(cycle * 0.5) * movePhase, -0.3, 0.9);
   } else if (segment < 4.5) {
-    pos = rotateAroundX(pos, sin(cycle + PI) * 0.6 * movePhase, 0.9);
+    float swing = sin(cycle + PI) * 0.6 * movePhase;
+    pos = rotateAroundX(pos, swing, 0.9);
+    pos = rotateAroundZ(pos, -0.2 * sin(cycle * 0.5) * movePhase, 0.3, 0.9);
   } else if (segment < 5.5) {
     pos = rotateAroundX(pos, sin(cycle + PI) * 0.8 * movePhase, 0.6);
   } else {
@@ -582,6 +605,7 @@ void main() {
   vec3 worldPosition = aPosition;
   if (aType > 2.5) {
     worldPosition = applyStickAnimation(worldPosition, aSegment);
+    worldPosition = rotateAroundY(worldPosition, uPlayerRotation);
     worldPosition += uPlayerOffset;
   }
   gl_Position = uViewProjection * vec4(worldPosition, 1.0);
