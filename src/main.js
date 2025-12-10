@@ -75,6 +75,8 @@ function hasOccupiedNeighbor(x, z) {
 })();
 
 const stations = new Map(); // key: `${x}-${z}`, value: Station object
+const handleOverlay = document.getElementById("handleOverlay");
+let activeHandleDrag = null;
 
 function vec3Add(a, b) {
   return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -192,6 +194,185 @@ function projectWorldToScreen(point) {
   const screenY = (-ndcY * 0.5 + 0.5) * rect.height;
   return { x: screenX, y: screenY };
 }
+
+function getRayFromClientPosition(clientX, clientY) {
+  if (!inverseViewProjection) {
+    return null;
+  }
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) {
+    return null;
+  }
+  const x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  const y = ((clientY - rect.top) / rect.height) * -2 + 1;
+  const nearPoint = transformClipToWorld(inverseViewProjection, x, y, -1);
+  const farPoint = transformClipToWorld(inverseViewProjection, x, y, 1);
+  if (!nearPoint || !farPoint) {
+    return null;
+  }
+  const direction = vec3Normalize(vec3Sub(farPoint, nearPoint));
+  return { origin: nearPoint, direction };
+}
+
+function intersectRayPlane(ray, planePoint, planeNormal) {
+  const denom = vec3Dot(ray.direction, planeNormal);
+  if (Math.abs(denom) < 1e-6) {
+    return null;
+  }
+  const diff = vec3Sub(planePoint, ray.origin);
+  const t = vec3Dot(diff, planeNormal) / denom;
+  if (t < 0) {
+    return null;
+  }
+  return vec3Add(ray.origin, vec3Scale(ray.direction, t));
+}
+
+function updateHandleOverlay() {
+  if (!handleOverlay) {
+    return;
+  }
+  handleOverlay.innerHTML = "";
+  handleOverlay.style.display = playerEditMode ? "block" : "none";
+  if (!playerEditMode || !playerEditStationId) {
+    return;
+  }
+  const station = stations.get(playerEditStationId);
+  if (!station) {
+    return;
+  }
+  station.trackNodes.forEach((node, index) => {
+    const posScreen = projectWorldToScreen(node.position);
+    if (posScreen) {
+      createHandleButton(posScreen, station, index, "pos", node.position);
+    }
+    if (node.handleIn) {
+      const inScreen = projectWorldToScreen(node.handleIn);
+      if (inScreen) {
+        createHandleButton(inScreen, station, index, "in", node.handleIn);
+      }
+    }
+    if (node.handleOut) {
+      const outScreen = projectWorldToScreen(node.handleOut);
+      if (outScreen) {
+        createHandleButton(outScreen, station, index, "out", node.handleOut);
+      }
+    }
+  });
+}
+
+function createHandleButton(screenPos, station, index, handleType, worldPosition) {
+  const btn = document.createElement("div");
+  btn.className = "handle-btn";
+  btn.style.left = `${screenPos.x}px`;
+  btn.style.top = `${screenPos.y}px`;
+  btn.dataset.stationId = station.key;
+  btn.dataset.nodeIndex = String(index);
+  btn.dataset.handleType = handleType;
+  if (
+    activeHandleDrag &&
+    activeHandleDrag.stationId === station.key &&
+    activeHandleDrag.nodeIndex === index &&
+    activeHandleDrag.handleType === handleType
+  ) {
+    btn.dataset.selected = "true";
+  }
+  btn.addEventListener("pointerdown", (event) => {
+    beginHandleDrag(station.key, index, handleType, worldPosition, event);
+  });
+  handleOverlay.appendChild(btn);
+}
+
+function beginHandleDrag(stationId, nodeIndex, handleType, worldPosition, event) {
+  event.preventDefault();
+  event.stopPropagation();
+  const station = stations.get(stationId);
+  if (!station || !playerEditMode || playerEditStationId !== stationId) {
+    return;
+  }
+  const node = station.trackNodes[nodeIndex];
+  if (!node) {
+    return;
+  }
+  if (handleType === "in" && !node.handleIn) {
+    node.handleIn = node.position.slice();
+  }
+  if (handleType === "out" && !node.handleOut) {
+    node.handleOut = node.position.slice();
+  }
+  const planePoint = worldPosition.slice();
+  const forward = camera.forward || vec3Normalize(vec3Sub(camera.target, camera.position));
+  const planeNormal = forward.slice();
+  activeHandleDrag = {
+    stationId,
+    nodeIndex,
+    handleType,
+    planePoint,
+    planeNormal,
+  };
+  updateHandleOverlay();
+}
+
+function applyHandleDragTarget(selection, target) {
+  const station = stations.get(selection.stationId);
+  if (!station) {
+    return;
+  }
+  const node = station.trackNodes[selection.nodeIndex];
+  if (!node) {
+    return;
+  }
+  if (selection.handleType === "pos") {
+    const delta = vec3Sub(target, node.position);
+    node.position = target;
+    if (node.handleIn) {
+      node.handleIn = vec3Add(node.handleIn, delta);
+    }
+    if (node.handleOut) {
+      node.handleOut = vec3Add(node.handleOut, delta);
+    }
+  } else if (selection.handleType === "in") {
+    node.handleIn = target;
+  } else if (selection.handleType === "out") {
+    node.handleOut = target;
+  }
+  rebuildStationTrack(station);
+}
+
+function endHandleDrag() {
+  if (!activeHandleDrag) {
+    return;
+  }
+  activeHandleDrag = null;
+}
+
+window.addEventListener("pointermove", (event) => {
+  if (!activeHandleDrag) {
+    return;
+  }
+  const ray = getRayFromClientPosition(event.clientX, event.clientY);
+  if (!ray) {
+    return;
+  }
+  const hit = intersectRayPlane(
+    ray,
+    activeHandleDrag.planePoint,
+    activeHandleDrag.planeNormal
+  );
+  if (!hit) {
+    return;
+  }
+  applyHandleDragTarget(activeHandleDrag, hit);
+  updateHandleOverlay();
+  event.preventDefault();
+});
+
+window.addEventListener("pointerup", (event) => {
+  if (!activeHandleDrag) {
+    return;
+  }
+  event.preventDefault();
+  endHandleDrag();
+});
 
 const DEFAULT_PLAYER_CELL_X = Math.floor((CORE_MIN + CORE_MAX) / 2);
 const DEFAULT_PLAYER_CELL_Z = Math.floor((CORE_MIN + CORE_MAX) / 2);
@@ -569,6 +750,7 @@ function seatPlayerAtStation(station) {
     player.yaw = Math.atan2(sample.tangent[0], sample.tangent[2]);
   }
   updateStatus("已进入站台，使用方向键沿轨道移动，点击站台开始编辑。");
+  updateHandleOverlay();
 }
 
 function dismountPlayer() {
@@ -582,6 +764,7 @@ function dismountPlayer() {
   player.cellX = Math.floor(player.worldX + HALF_WORLD);
   player.cellZ = Math.floor(player.worldZ + HALF_WORLD);
   updateStatus("已离开站台。");
+  updateHandleOverlay();
 }
 
 function toggleStationEditing(station) {
@@ -600,11 +783,13 @@ function toggleStationEditing(station) {
     playerEditStationId = station.id;
     playerEditIndex = index;
     updateStatus("编辑模式：使用 Q/R 上下调整轨道。再次点击站台完成。");
+    updateHandleOverlay();
   } else {
     playerEditMode = false;
     playerEditStationId = null;
     playerEditIndex = -1;
     updateStatus("已退出轨道编辑模式。");
+    updateHandleOverlay();
   }
 }
 
@@ -984,6 +1169,7 @@ class OrbitCamera {
     this.pitch = degToRad(45);
     this.target = [0, 0, 0];
     this.position = [0, 0, 0];
+    this.forward = [0, 0, -1];
     this.view = Mat4.create();
     this.projection = Mat4.create();
     this.viewProjection = Mat4.create();
@@ -1017,6 +1203,7 @@ class OrbitCamera {
     this.position[0] = this.target[0] + cy * cp * this.distance;
     this.position[1] = this.target[1] + sp * this.distance;
     this.position[2] = this.target[2] + sy * cp * this.distance;
+    this.forward = vec3Normalize(vec3Sub(this.target, this.position));
 
     Mat4.lookAt(this.view, this.position, this.target, [0, 1, 0]);
     Mat4.perspective(this.projection, degToRad(50), aspect, 0.1, 400);
@@ -1999,6 +2186,7 @@ function render(time) {
 
   gl.bindVertexArray(null);
   gl.uniform3f(uniforms.playerOffset, 0, 0, 0);
+  updateHandleOverlay();
   requestAnimationFrame(render);
 }
 
@@ -2140,15 +2328,19 @@ canvas.addEventListener("click", (event) => {
           const sz = parseInt(parts[1], 10) - 1;
           const skey = createStationKey(sx, sz);
           const station = stations.get(skey);
-          if (station) {
-            const nodeIndex = insertTrackControlPointAtDistance(
-              station,
-              station.rideLength * 0.5
-            );
-            if (nodeIndex != null) {
-              updateStatus("已在该站台轨道添加控制点。");
-            }
-          } else {
+      if (station) {
+        const nodeIndex = insertTrackControlPointAtDistance(
+          station,
+          station.rideLength * 0.5
+        );
+        if (nodeIndex != null) {
+          playerEditMode = true;
+          playerEditStationId = station.key;
+          playerEditIndex = nodeIndex;
+          updateStatus("已在该站台轨道添加控制点，拖拽控制点可编辑。");
+          updateHandleOverlay();
+        }
+      } else {
             updateStatus("未找到对应站台。");
           }
         }

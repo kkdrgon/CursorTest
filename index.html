@@ -42,9 +42,15 @@
         padding: 1rem;
       }
 
-      #viewport {
+      #viewportWrapper {
+        position: relative;
         width: 100%;
         max-height: calc(100vh - 220px);
+      }
+
+      #viewport {
+        width: 100%;
+        height: 100%;
         border-radius: 12px;
         border: 1px solid rgba(255, 255, 255, 0.08);
         background: radial-gradient(circle at top, #14223d, #050a12 65%);
@@ -55,6 +61,34 @@
 
       #viewport.dragging {
         cursor: grabbing;
+      }
+
+      #handleOverlay {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .handle-btn {
+        position: absolute;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        border: 2px solid #00d0ff;
+        background: rgba(0, 208, 255, 0.25);
+        box-shadow: 0 0 6px rgba(0, 208, 255, 0.5);
+        transform: translate(-50%, -50%);
+        pointer-events: auto;
+        cursor: pointer;
+      }
+
+      .handle-btn[data-handle-type="pos"] {
+        border-color: #ffd000;
+        background: rgba(255, 208, 0, 0.3);
+      }
+
+      .handle-btn[data-selected="true"] {
+        box-shadow: 0 0 10px rgba(255, 255, 255, 0.9);
       }
 
       .panel {
@@ -95,11 +129,14 @@
         <span>模式：第三视角跟随 · 默认 45°/8 m</span>
         <span>视角：鼠标拖拽旋转 · 滚轮/双指缩放</span>
         <span>移动：WASD / 方向键</span>
-        <span>点击扩展格可购买 / 点击地块可建站台</span>
+        <span>点击地块：购买 / 建站 / 轨道编辑</span>
       </div>
     </header>
     <main>
-      <canvas id="viewport"></canvas>
+      <div id="viewportWrapper">
+        <canvas id="viewport"></canvas>
+        <div id="handleOverlay"></div>
+      </div>
       <section class="panel">
         <h2>扩展区购买状态</h2>
         <p id="status">尚未进行任何购买。</p>
