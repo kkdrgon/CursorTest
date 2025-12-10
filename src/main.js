@@ -74,6 +74,8 @@ function hasOccupiedNeighbor(x, z) {
   }
 })();
 
+const stations = new Map(); // key: `${x}-${z}`, value: Station object
+
 function vec3Add(a, b) {
   return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 }
@@ -123,43 +125,49 @@ function rotateVectorAroundAxis(vector, axis, angle) {
   return vec3Add(vec3Add(term1, term2), term3);
 }
 
-function createAngleArray(min, max, step) {
-  const result = [];
-  for (let angle = min; angle <= max; angle += step) {
-    result.push(angle);
-  }
-  return result;
+function lerpVec3(a, b, t) {
+  return [
+    a[0] + (b[0] - a[0]) * t,
+    a[1] + (b[1] - a[1]) * t,
+    a[2] + (b[2] - a[2]) * t,
+  ];
 }
 
-const TRACK_PITCH_ANGLES = createAngleArray(-90, 90, 15);
-const TRACK_BANK_ANGLES = createAngleArray(-180, 180, 15);
-const TRACK_MODULE_LENGTH = 6;
-
-const trackModuleLibrary = new Map();
-
-function getTrackModuleKey(pitch, bank) {
-  return `${pitch}|${bank}`;
+function evaluateCubicBezier(p0, p1, p2, p3, t) {
+  const mt = 1 - t;
+  const mt2 = mt * mt;
+  const t2 = t * t;
+  const a = mt2 * mt;
+  const b = 3 * mt2 * t;
+  const c = 3 * mt * t2;
+  const d = t * t2;
+  return [
+    a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0],
+    a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1],
+    a * p0[2] + b * p1[2] + c * p2[2] + d * p3[2],
+  ];
 }
 
-function buildTrackModuleLibrary() {
-  for (const pitch of TRACK_PITCH_ANGLES) {
-    for (const bank of TRACK_BANK_ANGLES) {
-      const key = getTrackModuleKey(pitch, bank);
-      trackModuleLibrary.set(key, {
-        pitch,
-        bank,
-        length: TRACK_MODULE_LENGTH,
-      });
-    }
-  }
+function evaluateCubicBezierTangent(p0, p1, p2, p3, t) {
+  const mt = 1 - t;
+  const a = mt * mt;
+  const b = 2 * mt * t;
+  const c = t * t;
+  return [
+    3 * (p1[0] - p0[0]) * a + 3 * (p2[0] - p1[0]) * b + 3 * (p3[0] - p2[0]) * c,
+    3 * (p1[1] - p0[1]) * a + 3 * (p2[1] - p1[1]) * b + 3 * (p3[1] - p2[1]) * c,
+    3 * (p1[2] - p0[2]) * a + 3 * (p2[2] - p1[2]) * b + 3 * (p3[2] - p2[2]) * c,
+  ];
 }
 
-buildTrackModuleLibrary();
+const DEFAULT_PLAYER_CELL_X = Math.floor((CORE_MIN + CORE_MAX) / 2);
+const DEFAULT_PLAYER_CELL_Z = Math.floor((CORE_MIN + CORE_MAX) / 2);
 
 const player = {
-  cellX: Math.floor((CORE_MIN + CORE_MAX) / 2),
-  cellZ: Math.floor((CORE_MIN + CORE_MAX) / 2),
+  cellX: DEFAULT_PLAYER_CELL_X,
+  cellZ: DEFAULT_PLAYER_CELL_Z,
   worldX: 0,
+  worldY: 0,
   worldZ: 0,
   height: 1.4,
   yaw: 0,
@@ -167,18 +175,414 @@ const player = {
 
 function updatePlayerWorldPosition() {
   player.worldX = player.cellX - HALF_WORLD + 0.5;
+  player.worldY = 0;
   player.worldZ = player.cellZ - HALF_WORLD + 0.5;
 }
 
 updatePlayerWorldPosition();
 
+const STATION_PLATFORM_LENGTH = 10;
+const STATION_PLATFORM_WIDTH = 5;
+const STATION_PLATFORM_HEIGHT = 3;
+const INITIAL_TRACK_HEIGHT = 0.5;
+const INITIAL_TRACK_HALF = STATION_PLATFORM_LENGTH / 2;
+const TRACK_SAMPLES_PER_SEGMENT = 24;
+const TRACK_TIE_SPACING = 1.3;
+const TRACK_RAIL_OFFSET = 0.5;
+const TRACK_RAIL_HALF_WIDTH = 0.08;
+const TRACK_RAIL_HALF_HEIGHT = 0.06;
+
 let playerMoveIntensity = 0;
+let playerSeated = false;
+let playerStationId = null;
+let playerRideProgress = 0;
+let playerEditMode = false;
+let playerEditIndex = 0;
+let playerEditStationId = null;
+
+function createStationKey(cellX, cellZ) {
+  return `${cellX}-${cellZ}`;
+}
+
+function buildStationPlatformGeometry(center) {
+  const halfLength = STATION_PLATFORM_LENGTH / 2;
+  const halfWidth = STATION_PLATFORM_WIDTH / 2;
+  const height = STATION_PLATFORM_HEIGHT;
+  const startCenter = [
+    center[0] - halfLength,
+    center[1] + height / 2,
+    center[2],
+  ];
+  const endCenter = [
+    center[0] + halfLength,
+    center[1] + height / 2,
+    center[2],
+  ];
+  const data = {
+    positions: [],
+    cellCoords: [],
+    parities: [],
+    types: [],
+    segments: [],
+  };
+  addPrismGeometry({
+    positions: data.positions,
+    cellCoords: data.cellCoords,
+    parities: data.parities,
+    types: data.types,
+    segments: data.segments,
+    startCenter,
+    endCenter,
+    right: [1, 0, 0],
+    up: [0, 1, 0],
+    halfWidth,
+    halfHeight: height / 2,
+    typeValue: 4,
+  });
+  return data;
+}
+
+function createInitialTrackNodes(center) {
+  const start = [center[0] - INITIAL_TRACK_HALF, center[1] + INITIAL_TRACK_HEIGHT, center[2]];
+  const end = [center[0] + INITIAL_TRACK_HALF, center[1] + INITIAL_TRACK_HEIGHT, center[2]];
+  return [
+    {
+      position: start.slice(),
+      handleOut: vec3Add(start, [INITIAL_TRACK_HALF / 2, 0, 0]),
+      handleIn: null,
+    },
+    {
+      position: end.slice(),
+      handleIn: vec3Add(end, [-INITIAL_TRACK_HALF / 2, 0, 0]),
+      handleOut: null,
+    },
+  ];
+}
+
+function evaluateTrackSegmentNodes(nodeA, nodeB) {
+  const p0 = nodeA.position;
+  const p1 = nodeA.handleOut || lerpVec3(nodeA.position, nodeB.position, 1 / 3);
+  const p2 = nodeB.handleIn || lerpVec3(nodeA.position, nodeB.position, 2 / 3);
+  const p3 = nodeB.position;
+  return { p0, p1, p2, p3 };
+}
+
+function buildBezierTrackData(trackNodes) {
+  const positions = [];
+  const cellCoords = [];
+  const parities = [];
+  const types = [];
+  const segments = [];
+  const samples = [];
+  let totalLength = 0;
+  let prevSample = null;
+  for (let i = 0; i < trackNodes.length - 1; i += 1) {
+    const { p0, p1, p2, p3 } = evaluateTrackSegmentNodes(
+      trackNodes[i],
+      trackNodes[i + 1]
+    );
+    for (let step = 0; step <= TRACK_SAMPLES_PER_SEGMENT; step += 1) {
+      const t = step / TRACK_SAMPLES_PER_SEGMENT;
+      const position = evaluateCubicBezier(p0, p1, p2, p3, t);
+      let tangent = evaluateCubicBezierTangent(p0, p1, p2, p3, t);
+      tangent = vec3Normalize(tangent);
+      let up = [0, 1, 0];
+      let right = vec3Cross(tangent, up);
+      if (vec3Length(right) < 1e-4) {
+        right = [1, 0, 0];
+      }
+      right = vec3Normalize(right);
+      up = vec3Normalize(vec3Cross(right, tangent));
+      if (prevSample) {
+        const delta = vec3Sub(position, prevSample.position);
+        totalLength += vec3Length(delta);
+      }
+      const sample = {
+        position,
+        tangent,
+        up,
+        right,
+        distance: totalLength,
+        segmentIndex: i,
+        t,
+      };
+      samples.push(sample);
+      prevSample = sample;
+    }
+  }
+
+  for (let i = 1; i < samples.length; i += 1) {
+    const start = samples[i - 1];
+    const end = samples[i];
+    const forward = vec3Normalize(vec3Sub(end.position, start.position));
+    let up = vec3Normalize(vec3Add(start.up, end.up));
+    if (vec3Length(up) < 1e-4) {
+      up = [0, 1, 0];
+    }
+    let right = vec3Cross(forward, up);
+    if (vec3Length(right) < 1e-4) {
+      right = vec3Cross(forward, [0, 0, 1]);
+    }
+    right = vec3Normalize(right);
+    up = vec3Normalize(vec3Cross(right, forward));
+
+    const startCenter = start.position;
+    const endCenter = end.position;
+
+    const leftStart = vec3Add(startCenter, vec3Scale(right, -TRACK_RAIL_OFFSET));
+    const leftEnd = vec3Add(endCenter, vec3Scale(right, -TRACK_RAIL_OFFSET));
+    addPrismGeometry({
+      positions,
+      cellCoords,
+      parities,
+      types,
+      segments,
+      startCenter: leftStart,
+      endCenter: leftEnd,
+      right,
+      up,
+      halfWidth: TRACK_RAIL_HALF_WIDTH,
+      halfHeight: TRACK_RAIL_HALF_HEIGHT,
+      typeValue: 3,
+    });
+
+    const rightStart = vec3Add(startCenter, vec3Scale(right, TRACK_RAIL_OFFSET));
+    const rightEnd = vec3Add(endCenter, vec3Scale(right, TRACK_RAIL_OFFSET));
+    addPrismGeometry({
+      positions,
+      cellCoords,
+      parities,
+      types,
+      segments,
+      startCenter: rightStart,
+      endCenter: rightEnd,
+      right,
+      up,
+      halfWidth: TRACK_RAIL_HALF_WIDTH,
+      halfHeight: TRACK_RAIL_HALF_HEIGHT,
+      typeValue: 3,
+    });
+
+    const tieVector = vec3Sub(endCenter, startCenter);
+    const tieDistance = vec3Length(tieVector);
+    if (tieDistance > TRACK_TIE_SPACING) {
+      const steps = Math.floor(tieDistance / TRACK_TIE_SPACING);
+      for (let s = 1; s < steps; s += 1) {
+        const ratio = s / steps;
+        const tieCenter = lerpVec3(startCenter, endCenter, ratio);
+        addPrismGeometry({
+          positions,
+          cellCoords,
+          parities,
+          types,
+          segments,
+          startCenter: tieCenter,
+          endCenter: tieCenter,
+          right,
+          up,
+          halfWidth: TRACK_RAIL_OFFSET + 0.1,
+          halfHeight: TRACK_RAIL_HALF_HEIGHT * 0.8,
+          typeValue: 3,
+        });
+      }
+    }
+  }
+
+  return {
+    geometry: {
+      positions: new Float32Array(positions),
+      cellCoords: new Float32Array(cellCoords),
+      parities: new Float32Array(parities),
+      types: new Float32Array(types),
+      segments: new Float32Array(segments),
+      vertexCount: positions.length / 3,
+    },
+    samples,
+    length: totalLength,
+  };
+}
+
+function rebuildStationTrack(station) {
+  if (!station.trackNodes || station.trackNodes.length < 2) {
+    station.trackSamples = [];
+    station.rideLength = 0;
+    if (station.trackMesh) {
+      deleteMesh(station.trackMesh);
+      station.trackMesh = null;
+    }
+    return;
+  }
+  const data = buildBezierTrackData(station.trackNodes);
+  station.trackSamples = data.samples;
+  station.rideLength = data.length;
+  if (station.trackMesh) {
+    deleteMesh(station.trackMesh);
+  }
+  station.trackMesh = bindGeometry(data.geometry);
+  if (playerSeated && playerStationId === station.id) {
+    playerRideProgress = Math.min(playerRideProgress, station.rideLength);
+  }
+  if (playerEditMode && playerEditStationId === station.id) {
+    if (playerEditIndex < 0 || playerEditIndex >= station.trackNodes.length) {
+      playerEditMode = false;
+      playerEditStationId = null;
+      playerEditIndex = -1;
+    }
+  }
+}
+
+function rebuildStationPlatform(station) {
+  const geometry = buildStationPlatformGeometry(station.position);
+  if (station.platformMesh) {
+    deleteMesh(station.platformMesh);
+  }
+  station.platformMesh = bindGeometry(geometry);
+}
+
+function createStationAtCell(cellX, cellZ) {
+  const key = createStationKey(cellX, cellZ);
+  if (stations.has(key)) {
+    return stations.get(key);
+  }
+  const worldX = cellX - HALF_WORLD + 0.5;
+  const worldZ = cellZ - HALF_WORLD + 0.5;
+  const station = {
+    id: key,
+    key,
+    cellX,
+    cellZ,
+    position: [worldX, 0, worldZ],
+    rotation: 0,
+    trackNodes: createInitialTrackNodes([worldX, 0, worldZ]),
+    platformMesh: null,
+    trackMesh: null,
+    trackSamples: [],
+    rideLength: 0,
+  };
+  rebuildStationPlatform(station);
+  rebuildStationTrack(station);
+  stations.set(key, station);
+  return station;
+}
+
+function getTrackSampleAtDistance(station, distance) {
+  if (!station.trackSamples || station.trackSamples.length === 0) {
+    return null;
+  }
+  const samples = station.trackSamples;
+  if (distance <= 0) {
+    return samples[0];
+  }
+  if (distance >= station.rideLength) {
+    return samples[samples.length - 1];
+  }
+  for (let i = 1; i < samples.length; i += 1) {
+    const sample = samples[i];
+    if (sample.distance >= distance) {
+      const prev = samples[i - 1];
+      const span = sample.distance - prev.distance || 1;
+      const alpha = (distance - prev.distance) / span;
+      return {
+        position: lerpVec3(prev.position, sample.position, alpha),
+        tangent: vec3Normalize(lerpVec3(prev.tangent, sample.tangent, alpha)),
+        up: vec3Normalize(lerpVec3(prev.up, sample.up, alpha)),
+        right: vec3Normalize(lerpVec3(prev.right, sample.right, alpha)),
+        segmentIndex: sample.segmentIndex,
+        t: sample.t,
+      };
+    }
+  }
+  return samples[samples.length - 1];
+}
+
+function insertTrackControlPointAtDistance(station, distance) {
+  if (!station.trackNodes || station.trackNodes.length < 2) {
+    return null;
+  }
+  const sample = getTrackSampleAtDistance(station, distance);
+  if (!sample) {
+    return null;
+  }
+  const nodes = station.trackNodes;
+  const segmentIndex = sample.segmentIndex;
+  if (segmentIndex < 0 || segmentIndex >= nodes.length - 1) {
+    return null;
+  }
+  const newNode = {
+    position: sample.position.slice(),
+    handleIn: vec3Add(sample.position, vec3Scale(sample.tangent, -1)),
+    handleOut: vec3Add(sample.position, vec3Scale(sample.tangent, 1)),
+  };
+  nodes.splice(segmentIndex + 1, 0, newNode);
+  rebuildStationTrack(station);
+  return segmentIndex + 1;
+}
+
+function seatPlayerAtStation(station) {
+  if (!station.trackSamples || station.trackSamples.length === 0) {
+    return;
+  }
+  playerSeated = true;
+  playerStationId = station.id;
+  playerRideProgress = 0;
+  playerEditMode = false;
+  playerEditStationId = null;
+  playerEditIndex = -1;
+  const sample = getTrackSampleAtDistance(station, playerRideProgress);
+  if (sample) {
+    player.worldX = sample.position[0];
+    player.worldY = sample.position[1] + 0.35;
+    player.worldZ = sample.position[2];
+    player.yaw = Math.atan2(sample.tangent[0], sample.tangent[2]);
+  }
+  updateStatus("已进入站台，使用方向键沿轨道移动，点击站台开始编辑。");
+}
+
+function dismountPlayer() {
+  playerSeated = false;
+  playerStationId = null;
+  playerRideProgress = 0;
+  playerEditMode = false;
+  playerEditStationId = null;
+  playerEditIndex = -1;
+  player.worldY = 0;
+  player.cellX = Math.floor(player.worldX + HALF_WORLD);
+  player.cellZ = Math.floor(player.worldZ + HALF_WORLD);
+  updateStatus("已离开站台。");
+}
+
+function toggleStationEditing(station) {
+  if (!playerSeated || playerStationId !== station.id) {
+    return;
+  }
+  if (!playerEditMode) {
+    const index = insertTrackControlPointAtDistance(
+      station,
+      playerRideProgress
+    );
+    if (index == null) {
+      return;
+    }
+    playerEditMode = true;
+    playerEditStationId = station.id;
+    playerEditIndex = index;
+    updateStatus("编辑模式：使用 Q/R 上下调整轨道。再次点击站台完成。");
+  } else {
+    playerEditMode = false;
+    playerEditStationId = null;
+    playerEditIndex = -1;
+    updateStatus("已退出轨道编辑模式。");
+  }
+}
+
 
 const inputState = {
   forward: false,
   back: false,
   left: false,
   right: false,
+  editForward: false,
+  editBackward: false,
 };
 
 const keyBindings = {
@@ -190,6 +594,9 @@ const keyBindings = {
   a: "left",
   ArrowRight: "right",
   d: "right",
+  e: "interact",
+  q: "editBackward",
+  r: "editForward",
 };
 
 function normalizeKey(key) {
@@ -202,6 +609,12 @@ function handleMovementKey(event, isDown) {
     return;
   }
   event.preventDefault();
+  if (action === "interact") {
+    if (isDown && playerSeated) {
+      dismountPlayer();
+    }
+    return;
+  }
   inputState[action] = isDown;
 }
 
@@ -248,7 +661,71 @@ function shortestAngleDelta(current, target) {
   return diff;
 }
 
+function handleTrackEditing(station, deltaSeconds) {
+  if (!playerEditMode || playerEditStationId !== station.id) {
+    return;
+  }
+  const node = station.trackNodes[playerEditIndex];
+  if (!node) {
+    playerEditMode = false;
+    playerEditStationId = null;
+    playerEditIndex = -1;
+    return;
+  }
+  const delta =
+    (inputState.editForward ? 1 : 0) - (inputState.editBackward ? 1 : 0);
+  if (delta === 0) {
+    return;
+  }
+  const moveAmount = delta * deltaSeconds * 2;
+  node.position[1] += moveAmount;
+  if (node.handleIn) {
+    node.handleIn[1] += moveAmount;
+  }
+  if (node.handleOut) {
+    node.handleOut[1] += moveAmount;
+  }
+  rebuildStationTrack(station);
+}
+
+function updatePlayerRide(deltaSeconds) {
+  if (!playerStationId) {
+    dismountPlayer();
+    return;
+  }
+  const station = stations.get(playerStationId);
+  if (!station || !station.trackSamples || station.trackSamples.length === 0) {
+    dismountPlayer();
+    return;
+  }
+  const moveDir =
+    (inputState.forward ? 1 : 0) - (inputState.back ? 1 : 0);
+  const rideSpeed = 4;
+  playerRideProgress = Math.max(
+    0,
+    Math.min(
+      station.rideLength,
+      playerRideProgress + moveDir * rideSpeed * deltaSeconds
+    )
+  );
+  const sample = getTrackSampleAtDistance(station, playerRideProgress);
+  if (sample) {
+    player.worldX = sample.position[0];
+    player.worldY = sample.position[1] + 0.35;
+    player.worldZ = sample.position[2];
+    player.yaw = Math.atan2(sample.tangent[0], sample.tangent[2]);
+    const targetIntensity = Math.abs(moveDir);
+    const blend = Math.min(deltaSeconds * 8.0, 1.0);
+    playerMoveIntensity += (targetIntensity - playerMoveIntensity) * blend;
+  }
+  handleTrackEditing(station, deltaSeconds);
+}
+
 function updatePlayerPosition(deltaSeconds) {
+  if (playerSeated) {
+    updatePlayerRide(deltaSeconds);
+    return;
+  }
   const moveX =
     (inputState.right ? 1 : 0) - (inputState.left ? 1 : 0);
   const moveZ =
@@ -302,6 +779,7 @@ function updatePlayerPosition(deltaSeconds) {
       : 0.0;
   const blend = Math.min(deltaSeconds * 8.0, 1.0);
   playerMoveIntensity += (targetIntensity - playerMoveIntensity) * blend;
+  player.worldY = 0;
 }
 
 const Mat4 = {
@@ -803,6 +1281,13 @@ void main() {
     vec3 steel = vec3(0.75, 0.78, 0.86);
     vec3 tint = vec3(0.05, 0.05, 0.08) * fbm(vCellUv * 8.0);
     outColor = vec4(steel + tint, 1.0);
+    return;
+  }
+
+  if (vType < 4.5) {
+    vec3 deck = vec3(0.55, 0.51, 0.45);
+    vec3 highlight = vec3(0.1, 0.08, 0.05) * fbm(vCellUv * 4.0);
+    outColor = vec4(deck + highlight, 1.0);
     return;
   }
 
@@ -1345,13 +1830,6 @@ const groundGeometry = buildGroundGeometry(WORLD_SIZE, PARK_SIZE);
 const groundMesh = bindGeometry(groundGeometry);
 const playerGeometry = buildPlayerGeometry();
 const playerMesh = bindGeometry(playerGeometry);
-const trackGeometry = buildRollerCoasterGeometry(
-  sampleTrackSequence,
-  [0, 4, -20],
-  [0, 0, 1]
-);
-const trackMesh = bindGeometry(trackGeometry);
-
 function createFenceMeshFromOccupancy() {
   const geometry = buildFenceGeometryFromOccupancy();
   return bindGeometry(geometry);
@@ -1456,7 +1934,7 @@ function render(time) {
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   const aspect = gl.drawingBufferWidth / Math.max(gl.drawingBufferHeight, 1);
-  camera.setTarget(player.worldX, player.height * 0.6, player.worldZ);
+  camera.setTarget(player.worldX, player.worldY + player.height * 0.6, player.worldZ);
   camera.update(aspect);
   inverseViewProjection = camera.inverseViewProjection;
   gl.uniformMatrix4fv(uniforms.viewProjection, false, camera.viewProjection);
@@ -1471,11 +1949,19 @@ function render(time) {
   gl.bindVertexArray(fenceMesh.vao);
   gl.drawArrays(gl.TRIANGLES, 0, fenceMesh.vertexCount);
 
-  gl.bindVertexArray(trackMesh.vao);
-  gl.drawArrays(gl.TRIANGLES, 0, trackMesh.vertexCount);
+  stations.forEach((station) => {
+    if (station.platformMesh) {
+      gl.bindVertexArray(station.platformMesh.vao);
+      gl.drawArrays(gl.TRIANGLES, 0, station.platformMesh.vertexCount);
+    }
+    if (station.trackMesh) {
+      gl.bindVertexArray(station.trackMesh.vao);
+      gl.drawArrays(gl.TRIANGLES, 0, station.trackMesh.vertexCount);
+    }
+  });
 
   gl.bindVertexArray(playerMesh.vao);
-  gl.uniform3f(uniforms.playerOffset, player.worldX, 0, player.worldZ);
+  gl.uniform3f(uniforms.playerOffset, player.worldX, player.worldY, player.worldZ);
   gl.drawArrays(gl.TRIANGLES, 0, playerMesh.vertexCount);
 
   gl.bindVertexArray(null);
@@ -1573,13 +2059,30 @@ canvas.addEventListener("click", (event) => {
     updateStatus("点击位置超出地块范围，未处理。");
     return;
   }
+  const key = createStationKey(cell.x, cell.z);
+  if (stations.has(key)) {
+    const station = stations.get(key);
+    if (!playerSeated || playerStationId !== station.id) {
+      seatPlayerAtStation(station);
+    } else {
+      toggleStationEditing(station);
+    }
+    return;
+  }
+  if (isCellOccupied(cell.x, cell.z)) {
+    const station = createStationAtCell(cell.x, cell.z);
+    updateStatus(
+      `已在 (${cell.x + 1}, ${cell.z + 1}) 建成站台，点击开始乘坐。`
+    );
+    return;
+  }
   if (!isPurchasable(cell)) {
-    updateStatus("核心 60 m × 60 m 公园区域已开放，此处无需购买。");
+    updateStatus("该区域未解锁，无法建设或购买。");
     return;
   }
 
-  const key = `${cell.x}-${cell.z}`;
-  if (purchasedCells.has(key)) {
+  const purchaseKey = `${cell.x}-${cell.z}`;
+  if (purchasedCells.has(purchaseKey)) {
     updateStatus(`扩展格 (${cell.x + 1}, ${cell.z + 1}) 已购入。`);
     return;
   }
@@ -1592,11 +2095,11 @@ canvas.addEventListener("click", (event) => {
     return;
   }
 
-  purchasedCells.add(key);
+  purchasedCells.add(purchaseKey);
   updatePurchaseTexture(cell.x, cell.z, true);
   markCellOccupied(cell);
   rebuildFenceMesh();
   updateStatus(`成功购入扩展格 (${cell.x + 1}, ${cell.z + 1})！`);
 });
 
-updateStatus("尚未进行任何购买。");
+updateStatus("点击公园地块可建站台，或购买扩展格。");
