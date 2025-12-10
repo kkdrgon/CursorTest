@@ -156,20 +156,6 @@ function buildTrackModuleLibrary() {
 
 buildTrackModuleLibrary();
 
-const sampleTrackSequence = [
-  trackModuleLibrary.get(getTrackModuleKey(0, 0)),
-  trackModuleLibrary.get(getTrackModuleKey(15, 0)),
-  trackModuleLibrary.get(getTrackModuleKey(30, 30)),
-  trackModuleLibrary.get(getTrackModuleKey(15, 60)),
-  trackModuleLibrary.get(getTrackModuleKey(0, 90)),
-  trackModuleLibrary.get(getTrackModuleKey(-15, 45)),
-  trackModuleLibrary.get(getTrackModuleKey(-30, 0)),
-  trackModuleLibrary.get(getTrackModuleKey(-15, -45)),
-  trackModuleLibrary.get(getTrackModuleKey(0, -60)),
-  trackModuleLibrary.get(getTrackModuleKey(15, -30)),
-  trackModuleLibrary.get(getTrackModuleKey(0, 0)),
-].filter(Boolean);
-
 const player = {
   cellX: Math.floor((CORE_MIN + CORE_MAX) / 2),
   cellZ: Math.floor((CORE_MIN + CORE_MAX) / 2),
