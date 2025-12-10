@@ -74,6 +74,102 @@ function hasOccupiedNeighbor(x, z) {
   }
 })();
 
+function vec3Add(a, b) {
+  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+}
+
+function vec3Sub(a, b) {
+  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}
+
+function vec3Scale(a, s) {
+  return [a[0] * s, a[1] * s, a[2] * s];
+}
+
+function vec3Dot(a, b) {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function vec3Cross(a, b) {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+}
+
+function vec3Length(a) {
+  return Math.hypot(a[0], a[1], a[2]);
+}
+
+function vec3Normalize(a) {
+  const len = vec3Length(a);
+  if (len === 0) {
+    return [0, 0, 0];
+  }
+  return vec3Scale(a, 1 / len);
+}
+
+function rotateVectorAroundAxis(vector, axis, angle) {
+  const normalizedAxis = vec3Normalize(axis);
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const term1 = vec3Scale(vector, cos);
+  const term2 = vec3Scale(vec3Cross(normalizedAxis, vector), sin);
+  const term3 = vec3Scale(
+    normalizedAxis,
+    vec3Dot(normalizedAxis, vector) * (1 - cos)
+  );
+  return vec3Add(vec3Add(term1, term2), term3);
+}
+
+function createAngleArray(min, max, step) {
+  const result = [];
+  for (let angle = min; angle <= max; angle += step) {
+    result.push(angle);
+  }
+  return result;
+}
+
+const TRACK_PITCH_ANGLES = createAngleArray(-90, 90, 15);
+const TRACK_BANK_ANGLES = createAngleArray(-180, 180, 15);
+const TRACK_MODULE_LENGTH = 6;
+
+const trackModuleLibrary = new Map();
+
+function getTrackModuleKey(pitch, bank) {
+  return `${pitch}|${bank}`;
+}
+
+function buildTrackModuleLibrary() {
+  for (const pitch of TRACK_PITCH_ANGLES) {
+    for (const bank of TRACK_BANK_ANGLES) {
+      const key = getTrackModuleKey(pitch, bank);
+      trackModuleLibrary.set(key, {
+        pitch,
+        bank,
+        length: TRACK_MODULE_LENGTH,
+      });
+    }
+  }
+}
+
+buildTrackModuleLibrary();
+
+const sampleTrackSequence = [
+  trackModuleLibrary.get(getTrackModuleKey(0, 0)),
+  trackModuleLibrary.get(getTrackModuleKey(15, 0)),
+  trackModuleLibrary.get(getTrackModuleKey(30, 30)),
+  trackModuleLibrary.get(getTrackModuleKey(15, 60)),
+  trackModuleLibrary.get(getTrackModuleKey(0, 90)),
+  trackModuleLibrary.get(getTrackModuleKey(-15, 45)),
+  trackModuleLibrary.get(getTrackModuleKey(-30, 0)),
+  trackModuleLibrary.get(getTrackModuleKey(-15, -45)),
+  trackModuleLibrary.get(getTrackModuleKey(0, -60)),
+  trackModuleLibrary.get(getTrackModuleKey(15, -30)),
+  trackModuleLibrary.get(getTrackModuleKey(0, 0)),
+].filter(Boolean);
+
 const player = {
   cellX: Math.floor((CORE_MIN + CORE_MAX) / 2),
   cellZ: Math.floor((CORE_MIN + CORE_MAX) / 2),
@@ -618,7 +714,8 @@ vec3 applyStickAnimation(vec3 pos, float segment) {
 
 void main() {
   vec3 worldPosition = aPosition;
-  if (aType > 2.5) {
+  bool isPlayer = aType > 3.5;
+  if (isPlayer) {
     worldPosition = applyStickAnimation(worldPosition, aSegment);
     worldPosition = rotateAroundY(worldPosition, uPlayerRotation);
     worldPosition += uPlayerOffset;
@@ -713,6 +810,13 @@ void main() {
   if (vType < 2.5) {
     vec3 expansionGrass = renderGrass(vParity, vCellUv, vCellCoord);
     outColor = vec4(expansionGrass, 1.0);
+    return;
+  }
+
+  if (vType < 3.5) {
+    vec3 steel = vec3(0.75, 0.78, 0.86);
+    vec3 tint = vec3(0.05, 0.05, 0.08) * fbm(vCellUv * 8.0);
+    outColor = vec4(steel + tint, 1.0);
     return;
   }
 
@@ -976,6 +1080,162 @@ function buildFenceGeometryFromOccupancy() {
   };
 }
 
+function addPrismGeometry({
+  positions,
+  cellCoords,
+  parities,
+  types,
+  segments,
+  startCenter,
+  endCenter,
+  right,
+  up,
+  halfWidth,
+  halfHeight,
+  typeValue,
+}) {
+  const forward = vec3Normalize(vec3Sub(endCenter, startCenter));
+  const startCorners = [
+    vec3Add(vec3Add(startCenter, vec3Scale(right, halfWidth)), vec3Scale(up, halfHeight)),
+    vec3Add(vec3Sub(startCenter, vec3Scale(right, halfWidth)), vec3Scale(up, halfHeight)),
+    vec3Sub(vec3Sub(startCenter, vec3Scale(right, halfWidth)), vec3Scale(up, halfHeight)),
+    vec3Sub(vec3Add(startCenter, vec3Scale(right, halfWidth)), vec3Scale(up, halfHeight)),
+  ];
+  const endCorners = startCorners.map((corner) =>
+    vec3Add(corner, vec3Scale(forward, vec3Length(vec3Sub(endCenter, startCenter))))
+  );
+
+  const faces = [
+    [startCorners[0], startCorners[1], startCorners[2], startCorners[3]],
+    [endCorners[1], endCorners[0], endCorners[3], endCorners[2]],
+    [startCorners[1], endCorners[1], endCorners[2], startCorners[2]],
+    [endCorners[0], startCorners[0], startCorners[3], endCorners[3]],
+    [startCorners[0], endCorners[0], endCorners[1], startCorners[1]],
+    [startCorners[3], startCorners[2], endCorners[2], endCorners[3]],
+  ];
+
+  for (const face of faces) {
+    positions.push(
+      ...face[0],
+      ...face[1],
+      ...face[2],
+      ...face[0],
+      ...face[2],
+      ...face[3]
+    );
+    for (let i = 0; i < 6; i += 1) {
+      cellCoords.push(0, 0);
+      parities.push(0);
+      types.push(typeValue);
+      segments.push(0);
+    }
+  }
+}
+
+function buildRollerCoasterGeometry(moduleSequence, startPosition, startForward) {
+  const positions = [];
+  const cellCoords = [];
+  const parities = [];
+  const types = [];
+  const segments = [];
+
+  let position = startPosition.slice();
+  let forward = vec3Normalize(startForward);
+  let up = [0, 1, 0];
+  let right = vec3Normalize(vec3Cross(forward, up));
+  up = vec3Normalize(vec3Cross(right, forward));
+
+  for (const module of moduleSequence) {
+    const pitch = degToRad(module.pitch);
+    const bank = degToRad(module.bank);
+    forward = vec3Normalize(rotateVectorAroundAxis(forward, right, pitch));
+    up = vec3Normalize(rotateVectorAroundAxis(up, right, pitch));
+    right = vec3Normalize(vec3Cross(forward, up));
+    up = vec3Normalize(vec3Cross(right, forward));
+
+    right = vec3Normalize(rotateVectorAroundAxis(right, forward, bank));
+    up = vec3Normalize(rotateVectorAroundAxis(up, forward, bank));
+
+    const nextPosition = vec3Add(position, vec3Scale(forward, module.length));
+
+    const railOffset = 0.5;
+    const railHalfWidth = 0.07;
+    const railHalfHeight = 0.05;
+
+    const leftRailStart = vec3Add(position, vec3Scale(right, -railOffset));
+    const leftRailEnd = vec3Add(nextPosition, vec3Scale(right, -railOffset));
+    addPrismGeometry({
+      positions,
+      cellCoords,
+      parities,
+      types,
+      segments,
+      startCenter: vec3Add(leftRailStart, vec3Scale(up, 0.3)),
+      endCenter: vec3Add(leftRailEnd, vec3Scale(up, 0.3)),
+      right,
+      up,
+      halfWidth: railHalfWidth,
+      halfHeight: railHalfHeight,
+      typeValue: 3,
+    });
+
+    const rightRailStart = vec3Add(position, vec3Scale(right, railOffset));
+    const rightRailEnd = vec3Add(nextPosition, vec3Scale(right, railOffset));
+    addPrismGeometry({
+      positions,
+      cellCoords,
+      parities,
+      types,
+      segments,
+      startCenter: vec3Add(rightRailStart, vec3Scale(up, 0.3)),
+      endCenter: vec3Add(rightRailEnd, vec3Scale(up, 0.3)),
+      right,
+      up,
+      halfWidth: railHalfWidth,
+      halfHeight: railHalfHeight,
+      typeValue: 3,
+    });
+
+    const tieSpacing = 1.2;
+    const tieHalfWidth = railOffset + 0.1;
+    const tieHalfHeight = 0.04;
+    const distance = module.length;
+    const steps = Math.max(2, Math.floor(distance / tieSpacing));
+    for (let i = 0; i < steps; i += 1) {
+      const t = i / (steps - 1);
+      const tiePos = vec3Add(
+        position,
+        vec3Scale(forward, distance * t)
+      );
+      addPrismGeometry({
+        positions,
+        cellCoords,
+        parities,
+        types,
+        segments,
+        startCenter: vec3Add(tiePos, vec3Scale(up, 0.25)),
+        endCenter: vec3Add(vec3Add(tiePos, vec3Scale(up, 0.25)), vec3Scale(forward, 0.05)),
+        right,
+        up,
+        halfWidth: tieHalfWidth,
+        halfHeight: tieHalfHeight,
+        typeValue: 3,
+      });
+    }
+
+    position = nextPosition;
+  }
+
+  return {
+    positions: new Float32Array(positions),
+    cellCoords: new Float32Array(cellCoords),
+    parities: new Float32Array(parities),
+    types: new Float32Array(types),
+    segments: new Float32Array(segments),
+    vertexCount: positions.length / 3,
+  };
+}
+
 function buildPlayerGeometry() {
   const positions = [];
   const cellCoords = [];
@@ -1099,6 +1359,12 @@ const groundGeometry = buildGroundGeometry(WORLD_SIZE, PARK_SIZE);
 const groundMesh = bindGeometry(groundGeometry);
 const playerGeometry = buildPlayerGeometry();
 const playerMesh = bindGeometry(playerGeometry);
+const trackGeometry = buildRollerCoasterGeometry(
+  sampleTrackSequence,
+  [0, 4, -20],
+  [0, 0, 1]
+);
+const trackMesh = bindGeometry(trackGeometry);
 
 function createFenceMeshFromOccupancy() {
   const geometry = buildFenceGeometryFromOccupancy();
@@ -1218,6 +1484,9 @@ function render(time) {
 
   gl.bindVertexArray(fenceMesh.vao);
   gl.drawArrays(gl.TRIANGLES, 0, fenceMesh.vertexCount);
+
+  gl.bindVertexArray(trackMesh.vao);
+  gl.drawArrays(gl.TRIANGLES, 0, trackMesh.vertexCount);
 
   gl.bindVertexArray(playerMesh.vao);
   gl.uniform3f(uniforms.playerOffset, player.worldX, 0, player.worldZ);
