@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ADDJS 测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f9f9f9;
+            border-left: 4px solid #4CAF50;
+        }
+        .input-group {
+            margin: 10px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        textarea, input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+            box-sizing: border-box;
+        }
+        textarea {
+            min-height: 80px;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .result {
+            margin-top: 15px;
+            padding: 10px;
+            background: #e8f5e9;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        .error {
+            background: #ffebee;
+            color: #c62828;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        .stat-card h3 {
+            margin-top: 0;
+            color: #4CAF50;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ADDJS 测试工具</h1>
+        
+        <div class="test-section">
+            <h2>测试消息解析</h2>
+            <div class="input-group">
+                <label>输入消息:</label>
+                <textarea id="messageInput" placeholder="粘贴消息字符串...">{筑基中期|70:0:1}{地图的|251:0:1}{「筑基级」洪荒圣兽C【异兽】|70:0:1}{在坐标|251:0:1}{(62,41)|103:0:1}{死亡，掉落：|251:0:1}{毁灭人生带|249:0:1}</textarea>
+            </div>
+            <button onclick="testParse()">解析消息</button>
+            <button onclick="testOnMessage()">处理消息 (onMessage)</button>
+            <div id="parseResult" class="result" style="display:none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>批量测试</h2>
+            <button onclick="testBatchMessages()">测试多条消息</button>
+            <div id="batchResult" class="result" style="display:none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>获取下一个地图</h2>
+            <div class="input-group">
+                <label>当前地图 (可选):</label>
+                <input type="text" id="currentMapInput" placeholder="留空表示不排除任何地图">
+            </div>
+            <button onclick="testGetNextMap()">获取怪物最多的地图</button>
+            <div id="nextMapResult" class="result" style="display:none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>地图统计</h2>
+            <button onclick="showStatistics()">显示所有地图统计</button>
+            <div id="statsResult" class="result" style="display:none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>其他操作</h2>
+            <button onclick="clearAll()">清除所有记录</button>
+            <button onclick="simulateTimePass()">模拟时间流逝 (5分钟)</button>
+        </div>
+    </div>
+
+    <script src="ADDJS.js"></script>
+    <script>
+        // 创建ADDJS实例
+        const addjs = new ADDJS();
+
+        function testParse() {
+            const message = document.getElementById('messageInput').value;
+            const result = addjs.parseMessage(message);
+            const resultDiv = document.getElementById('parseResult');
+            
+            resultDiv.style.display = 'block';
+            if (result) {
+                resultDiv.className = 'result';
+                resultDiv.textContent = JSON.stringify(result, null, 2);
+            } else {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = '解析失败: 无法从消息中提取地图名称和掉落物品';
+            }
+        }
+
+        function testOnMessage() {
+            const message = document.getElementById('messageInput').value;
+            addjs.onMessage(message);
+            const resultDiv = document.getElementById('parseResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = '消息已处理！查看控制台获取详细信息。\n\n' + 
+                JSON.stringify(addjs.getMapStatistics(), null, 2);
+        }
+
+        function testBatchMessages() {
+            const messages = [
+                '{筑基中期|70:0:1}{地图的|251:0:1}{「筑基级」洪荒圣兽C【异兽】|70:0:1}{在坐标|251:0:1}{(62,41)|103:0:1}{死亡，掉落：|251:0:1}{毁灭人生带|249:0:1}',
+                '{化羽门秘境|70:0:1}{地图的|251:0:1}{「元婴级」毒蛇之王A【妖兽】|70:0:1}{在坐标|251:0:1}{(57,51)|103:0:1}{死亡，掉落：|251:0:1}{赤目焚情こ链|249:0:1}',
+                '{筑基中期|70:0:1}{地图的|251:0:1}{「筑基级」洪荒圣兽B【异兽】|70:0:1}{在坐标|251:0:1}{(60,40)|103:0:1}{死亡，掉落：|251:0:1}{神秘装备|249:0:1}',
+                '{化羽门秘境|70:0:1}{地图的|251:0:1}{「元婴级」毒蛇之王B【妖兽】|70:0:1}{在坐标|251:0:1}{(55,50)|103:0:1}{死亡，掉落：|251:0:1}{高级材料|249:0:1}'
+            ];
+
+            messages.forEach(msg => addjs.onMessage(msg));
+
+            const resultDiv = document.getElementById('batchResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = `已处理 ${messages.length} 条消息\n\n` + 
+                JSON.stringify(addjs.getMapStatistics(), null, 2);
+        }
+
+        function testGetNextMap() {
+            const currentMap = document.getElementById('currentMapInput').value.trim() || null;
+            const nextMap = addjs.getNextMap(currentMap);
+            const resultDiv = document.getElementById('nextMapResult');
+            
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            
+            if (nextMap) {
+                const stats = addjs.getMapStatistics()[nextMap];
+                resultDiv.textContent = `推荐地图: ${nextMap}\n` +
+                    `总怪物数: ${stats.total}\n` +
+                    `存活怪物数: ${stats.alive}\n` +
+                    `死亡怪物数: ${stats.dead}\n\n` +
+                    `所有地图统计:\n` +
+                    JSON.stringify(addjs.getMapStatistics(), null, 2);
+            } else {
+                resultDiv.textContent = '没有找到合适的地图（可能所有地图都没有怪物记录）';
+            }
+        }
+
+        function showStatistics() {
+            const stats = addjs.getMapStatistics();
+            const resultDiv = document.getElementById('statsResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = JSON.stringify(stats, null, 2);
+        }
+
+        function clearAll() {
+            addjs.clear();
+            alert('所有记录已清除！');
+        }
+
+        function simulateTimePass() {
+            // 模拟时间流逝：将所有记录的死亡时间提前5分钟
+            const now = Date.now();
+            const fiveMinutesAgo = now - (5 * 60 * 1000);
+            
+            for (const [mapName, records] of addjs.deathRecords.entries()) {
+                records.forEach(record => {
+                    // 将死亡时间提前5分钟，这样复活时间就是现在
+                    record.deathTime = fiveMinutesAgo;
+                    record.reviveTime = now;
+                });
+            }
+            
+            alert('已模拟时间流逝5分钟，所有怪物应该都已复活！');
+            showStatistics();
+        }
+    </script>
+</body>
+</html>

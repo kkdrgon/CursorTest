@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="800" height="800" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="robotGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#708090;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#C0C0C0;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="800" height="800" fill="url(#robotGrad)"/>
+  
+  <!-- 头部 -->
+  <rect x="300" y="120" width="200" height="150" fill="#C0C0C0" stroke="#808080" stroke-width="4"/>
+  
+  <!-- 眼睛 -->
+  <circle cx="360" cy="240" r="15" fill="#00FF00"/>
+  <circle cx="440" cy="240" r="15" fill="#00FF00"/>
+  <circle cx="365" cy="224" r="5" fill="#FFFFFF"/>
+  <circle cx="445" cy="224" r="5" fill="#FFFFFF"/>
+  
+  <!-- 嘴巴 -->
+  <rect x="350" y="320" width="100" height="20" fill="#FF0000"/>
+  <text x="400" y="334" font-family="Arial" font-size="16" font-weight="bold" text-anchor="middle" fill="#FFFF00">===</text>
+  
+  <!-- 天线 -->
+  <line x1="370" y1="120" x2="360" y2="40" stroke="#808080" stroke-width="3"/>
+  <circle cx="360" cy="40" r="5" fill="#FF0000"/>
+  
+  <!-- 身体 -->
+  <rect x="280" y="280" width="240" height="200" fill="#A0A0A0" stroke="#606060" stroke-width="4"/>
+  <rect x="320" y="360" width="160" height="100" fill="#808080" stroke="#404040" stroke-width="2"/>
+  
+  <!-- 按钮 -->
+  <circle cx="370" cy="440" r="8" fill="#0000FF"/>
+  <circle cx="400" cy="440" r="8" fill="#0000FF"/>
+  <circle cx="430" cy="440" r="8" fill="#0000FF"/>
+  
+  <!-- 左臂 -->
+  <rect x="260" y="320" width="30" height="100" fill="#B0B0B0"/>
+  <rect x="250" y="360" width="20" height="20" fill="#B0B0B0"/>
+  <path d="M 270 400 L 255 416 L 245 400" stroke="#606060" stroke-width="4" fill="none"/>
+  <path d="M 270 400 L 255 384 L 245 400" stroke="#606060" stroke-width="4" fill="none"/>
+  
+  <!-- 右臂 -->
+  <rect x="510" y="320" width="30" height="100" fill="#B0B0B0"/>
+  <rect x="530" y="360" width="20" height="20" fill="#B0B0B0"/>
+  <path d="M 530 400 L 545 416 L 555 400" stroke="#606060" stroke-width="4" fill="none"/>
+  <path d="M 530 400 L 545 384 L 555 400" stroke="#606060" stroke-width="4" fill="none"/>
+  
+  <!-- 腿部 -->
+  <rect x="340" y="440" width="40" height="150" fill="#909090"/>
+  <rect x="420" y="440" width="40" height="150" fill="#909090"/>
+  
+  <!-- 脚 -->
+  <rect x="330" y="560" width="60" height="30" fill="#707070"/>
+  <rect x="410" y="560" width="60" height="30" fill="#707070"/>
+  
+  <!-- 文字 -->
+  <text x="400" y="720" font-family="Arial" font-size="40" font-weight="bold" text-anchor="middle" fill="#FFFFFF" stroke="#000000" stroke-width="2">机器人</text>
+</svg>

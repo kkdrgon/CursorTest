@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="800" height="800" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="beautyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFB6C1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#FFE4E1;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="800" height="800" fill="url(#beautyGrad)"/>
+  
+  <!-- 头发 -->
+  <path d="M 280 200 Q 400 100 520 200" stroke="#8B4513" stroke-width="240" fill="#8B4513" stroke-linecap="round"/>
+  
+  <!-- 头部 -->
+  <circle cx="400" cy="240" r="100" fill="#FFDBB3" stroke="#D4A574" stroke-width="2"/>
+  
+  <!-- 眉毛 -->
+  <path d="M 350 200 Q 370 184 390 200" stroke="#654321" stroke-width="3" fill="none"/>
+  <path d="M 410 200 Q 430 184 450 200" stroke="#654321" stroke-width="3" fill="none"/>
+  
+  <!-- 眼睛 -->
+  <circle cx="370" cy="224" r="8" fill="#000"/>
+  <circle cx="430" cy="224" r="8" fill="#000"/>
+  
+  <!-- 鼻子 -->
+  <line x1="400" y1="256" x2="400" y2="296" stroke="#D4A574" stroke-width="2"/>
+  
+  <!-- 嘴巴 -->
+  <path d="M 380 304 Q 400 324 420 304" stroke="#FF69B4" stroke-width="3" fill="none"/>
+  
+  <!-- 身体 -->
+  <path d="M 320 320 L 480 320 L 500 560 L 300 560 Z" fill="#FF69B4"/>
+  
+  <!-- 装饰 -->
+  <circle cx="360" cy="400" r="15" fill="#FF1493"/>
+  <circle cx="440" cy="400" r="15" fill="#FF1493"/>
+  
+  <!-- 文字 -->
+  <text x="400" y="680" font-family="Arial" font-size="40" font-weight="bold" text-anchor="middle" fill="#000">美女</text>
+</svg>

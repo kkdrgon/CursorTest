@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RSA 小课程工具</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header>
+        <h1>RSA 小课程工具</h1>
+        <p>
+          按照步骤选择素数、生成密钥，再试着加密和解密一段话，帮助孩子理解
+          RSA 的核心流程。
+        </p>
+      </header>
+
+      <section class="panel">
+        <h2>步骤 1：挑选两个素数</h2>
+        <p>选择两个不同的小素数，我们会自动计算 n = p × q 以及 φ(n)。</p>
+        <div class="form-row">
+          <label>素数 p
+            <select id="primeP"></select>
+          </label>
+          <label>素数 q
+            <select id="primeQ"></select>
+          </label>
+          <button id="refreshKeys">更新密钥</button>
+        </div>
+        <div class="results" id="primeResults"></div>
+      </section>
+
+      <section class="panel">
+        <h2>步骤 2：选择公开指数 e</h2>
+        <p>
+          我们提供了几个常见的 e 值。系统会自动验证 e 与 φ(n) 是否互质。
+        </p>
+        <div class="form-row">
+          <label>公开指数 e
+            <select id="publicE"></select>
+          </label>
+        </div>
+        <div class="results" id="keyResults"></div>
+      </section>
+
+      <section class="panel">
+        <h2>步骤 3：查看密钥</h2>
+        <p>这里显示 n、φ(n)、d，并用颜色提示是否已准备好加密。</p>
+        <div class="results" id="summaryResults"></div>
+      </section>
+
+      <section class="panel">
+        <h2>步骤 4：试着加密 / 解密</h2>
+        <p>输入任意英文或数字短句，每个字符会单独用 RSA 处理。</p>
+        <label>原文
+          <textarea id="plainText" rows="3" placeholder="Hello RSA!"></textarea>
+        </label>
+        <div class="form-row">
+          <button id="encryptBtn">加密</button>
+          <button id="decryptBtn">解密</button>
+          <button id="clearBtn" class="ghost">清空</button>
+        </div>
+        <label>密文（数字之间用空格分隔）
+          <textarea id="cipherText" rows="3" placeholder=""></textarea>
+        </label>
+        <div class="results hint">
+          <p>提示：真实的 RSA 会把更多字符合并在一起，这里为了教学更容易理解。</p>
+        </div>
+      </section>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>
+

@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Geometric enemy atlas (updated):
+  - Fast enemy: no speed line (just a circle)
+  - Death frames: three-stage sequence: 1) large breaks, 2) shards scatter & fade, 3) mechanical fade
+  4 columns x 4 rows, tile size 64x64
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <style>
+      .tile-bg { fill: #ffffff; stroke: #222; stroke-width:1; }
+      .bg { fill: #1f1f1f; }
+      .label { font-family: Arial, Helvetica, sans-serif; font-size:9px; fill:#111; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="256" height="256" class="bg" />
+
+  <!-- Row 0: alive shapes (unchanged) -->
+  <g transform="translate(0,0)">
+    <rect x="0" y="0" width="64" height="64" rx="4" ry="4" class="tile-bg" />
+    <g transform="translate(32,28)">
+      <circle cx="0" cy="0" r="16" fill="#3CB371" stroke="#2E8B57" stroke-width="2" />
+    </g>
+    <text x="4" y="58" class="label">normal</text>
+  </g>
+
+  <g transform="translate(64,0)">
+    <rect x="0" y="0" width="64" height="64" rx="4" ry="4" class="tile-bg" />
+    <g transform="translate(32,28)">
+      <circle cx="0" cy="0" r="12" fill="#FF6B6B" stroke="#C0392B" stroke-width="2" />
+    </g>
+    <text x="4" y="58" class="label">fast</text>
+  </g>
+
+  <g transform="translate(128,0)">
+    <rect x="0" y="0" width="64" height="64" rx="4" ry="4" class="tile-bg" />
+    <g transform="translate(32,28)">
+      <rect x="-16" y="-16" width="32" height="32" fill="#5DADE2" stroke="#2E86C1" stroke-width="2" />
+    </g>
+    <text x="4" y="58" class="label">strong</text>
+  </g>
+
+  <g transform="translate(192,0)">
+    <rect x="0" y="0" width="64" height="64" rx="4" ry="4" class="tile-bg" />
+    <g transform="translate(32,28)">
+      <circle cx="0" cy="0" r="8" fill="#9B59B6" stroke="#6C3483" stroke-width="2" />
+      <line x1="-22" y1="-22" x2="22" y2="22" stroke="#8e44ad" stroke-width="4" stroke-linecap="round" />
+      <line x1="22" y1="-22" x2="-22" y2="22" stroke="#8e44ad" stroke-width="4" stroke-linecap="round" />
+    </g>
+    <text x="4" y="58" class="label">flying</text>
+  </g>
+
+  <!-- Row 1: death frame 1 - initial breaks (large shards) -->
+  <g transform="translate(0,64)">
+    <rect x="0" y="0" width="64" height="64" rx="4" ry="4" class="tile-bg" />
+    <g transform="translate(32,28)">
+      <path d="M -16 0 L -2 -8 A 12 12 0 0 1 6 -2 L -6 8 Z" fill="#9FD79A" stroke="#78B86C" stroke-width="0.8" />
+      <path d="M 6 -2 A 9 9 0 0 1 14 6 L 2 10 L -2 2 Z" fill="#BFEFC2" stroke="#8FD79F" stroke-width="0.6" />
+      <path d="M -10 6 L -2 10 L 6 6 L 2 2 Z" fill="#DFF7D9" stroke="#AEDDAB" stroke-width="0.6" />
+    </g>
+  </g>
+
+  <g transform="translate(64,64)">
+    <rect x="0" y="0" width="64" height="64" rx="4" ry="4" class="tile-bg" />
+    <g transform="translate(32,28)">
+      <circle cx="-6" cy="-2" r="5" fill="#ffb3b3" stroke="#f29494" stroke-width="0.6"/>
+      <circle cx="4" cy="3" r="4" fill="#ffd6d6" stroke="#ffcfcf" stroke-width="0.5"/>
+      <circle cx="12" cy="-4" r="3" fill="#ffdede" stroke="#ffd6d6" stroke-width="0.4"/>
+    </g>
+  </g>
+
+  <g transform="translate(128,64)">
+    <rect x="0" y="0" width="64" height="64" rx="4" ry="4" class="tile-bg" />
+    <g transform="translate(32,28)">
+      <polygon points="-12,-10 -2,-8 2,-2 -10,2" fill="#cfe8fb" stroke="#9fcdf7" stroke-width="0.6"/>
+      <polygon points="6,-8 12,-2 6,6 -2,2" fill="#e6f3fb" stroke="#cfe8fb" stroke-width="0.6"/>
+      <rect x="-6" y="6" width="8" height="6" fill="#dfefff" transform="rotate(-6)"/>
+    </g>
+  </g>
+
+  <g transform="translate(192,64)">
+    <rect x="0" y="0" width="64" height="64" rx="4" ry="4" class="tile-bg" />
+    <g transform="translate(32,28)">
+      <path d="M -14 -14 L -4 -6 L -8 -2 L -16 -10 Z" fill="#d6c2f8" stroke="#bda7f3" stroke-width="0.6"/>
+      <path d="M 14 14 L 6 6 L 10 2 L 18 10 Z" fill="#e6d7ff" stroke="#d6c2f8" stroke-width="0.6"/>
+      <circle cx="2" cy="-2" r="3.5" fill="#e6d7ff" stroke="#d6c2f8" stroke-width="0.5"/>
+    </g>
+  </g>
+
+  <!-- Row 2: death frame 2 - shards scattered outward and fading -->
+  <g transform="translate(0,128)">
+    <rect x="0" y="0" width="64" height="64" rx="4" ry="4" class="tile-bg" />
+    <g transform="translate(32,28)">
+      <path d="M -18 -4 L -6 -14 L -2 -6 L -12 4 Z" fill="#9FD79A" opacity="0.78"/>
+      <path d="M 8 -6 A 6 6 0 0 1 16 4 L 6 8 Z" fill="#BFEFC2" opacity="0.75"/>
+      <circle cx="10" cy="10" r="3" fill="#dff7d9" opacity="0.7"/>
+    </g>
+  </g>
+
+  <g transform="translate(64,128)">
+    <rect x="0" y="0" width="64" height="64" rx="4" ry="4" class="tile-bg" />
+    <g transform="translate(32,28)">
+      <circle cx="-10" cy="-6" r="5" fill="#ffb3b3" opacity="0.8"/>
+      <circle cx="6" cy="8" r="4" fill="#ffd6d6" opacity="0.75"/>
+      <circle cx="14" cy="-6" r="3" fill="#ffdede" opacity="0.7"/>
+    </g>
+  </g>
+
+  <g transform="translate(128,128)">
+    <rect x="0" y="0" width="64" height="64" rx="4" ry="4" class="tile-bg" />
+    <g transform="translate(32,28)">
+      <rect x="-16" y="-8" width="10" height="8" fill="#cfe8fb" transform="rotate(-22)" opacity="0.85"/>
+      <rect x="8" y="-6" width="12" height="8" fill="#e6f3fb" transform="rotate(18)" opacity="0.8"/>
+      <rect x="2" y="10" width="6" height="4" fill="#eaf7ff" opacity="0.75"/>
+    </g>
+  </g>
+
+  <g transform="translate(192,128)">
+    <rect x="0" y="0" width="64" height="64" rx="4" ry="4" class="tile-bg" />
+    <g transform="translate(32,28)">
+      <line x1="-16" y1="-16" x2="-6" y2="-6" stroke="#b088e0" stroke-width="2.5" opacity="0.85"/>
+      <line x1="8" y1="8" x2="18" y2="18" stroke="#b088e0" stroke-width="2.5" opacity="0.8"/>
+      <circle cx="6" cy="-2" r="3.5" fill="#e6d7ff" opacity="0.8"/>
+    </g>
+  </g>
+
+  <!-- Row 3: death frame 3 - mechanical fade with small rects/lines -->
+  <g transform="translate(0,192)">
+    <rect x="0" y="0" width="64" height="64" rx="4" ry="4" class="tile-bg" />
+    <g transform="translate(32,28)">
+      <rect x="-6" y="-3" width="6" height="6" fill="#f1fbf1" opacity="0.6" transform="rotate(-15)"/>
+      <rect x="4" y="2" width="7" height="5" fill="#e8f7e8" opacity="0.55"/>
+      <rect x="10" y="6" width="5" height="3" fill="#eef8ee" opacity="0.5"/>
+    </g>
+  </g>
+
+  <g transform="translate(64,192)">
+    <rect x="0" y="0" width="64" height="64" rx="4" ry="4" class="tile-bg" />
+    <g transform="translate(32,28)">
+      <rect x="-2" y="-2" width="5" height="5" fill="#fff0f0" opacity="0.6"/>
+      <rect x="6" y="-2" width="4" height="4" fill="#fff3f3" opacity="0.5"/>
+      <rect x="12" y="6" width="3" height="2" fill="#fff7f7" opacity="0.45"/>
+    </g>
+  </g>
+
+  <g transform="translate(128,192)">
+    <rect x="0" y="0" width="64" height="64" rx="4" ry="4" class="tile-bg" />
+    <g transform="translate(32,28)">
+      <rect x="-3" y="-3" width="7" height="7" fill="#f0f8ff" opacity="0.6" transform="rotate(6)"/>
+      <rect x="6" y="4" width="5" height="4" fill="#f5fbff" opacity="0.55"/>
+      <rect x="-10" y="8" width="6" height="3" fill="#eaf3ff" opacity="0.5"/>
+    </g>
+  </g>
+
+  <g transform="translate(192,192)">
+    <rect x="0" y="0" width="64" height="64" rx="4" ry="4" class="tile-bg" />
+    <g transform="translate(32,28)">
+      <rect x="2" y="0" width="4" height="6" fill="#fbf5ff" opacity="0.6"/>
+      <rect x="-6" y="4" width="4" height="3" fill="#fbf7ff" opacity="0.55"/>
+      <rect x="8" y="-6" width="3" height="4" fill="#f7f1ff" opacity="0.5"/>
+    </g>
+  </g>
+
+</svg>

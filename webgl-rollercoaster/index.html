@@ -1,0 +1,2942 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>过山车轨道编辑器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+            overflow: hidden;
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+        
+        #canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+            touch-action: none;
+        }
+        
+        /* 顶部状态栏 */
+        #topBar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 80px;
+            background: linear-gradient(180deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.7) 100%);
+            z-index: 200;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 15px;
+            backdrop-filter: blur(10px);
+        }
+        
+        #coinDisplay {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 24px;
+            font-weight: bold;
+            color: #FFD700;
+        }
+        
+        #coinDisplay .coin-icon {
+            font-size: 32px;
+            animation: coinPulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes coinPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        .coin-animation {
+            position: fixed;
+            font-size: 20px;
+            color: #FFD700;
+            pointer-events: none;
+            z-index: 1000;
+            font-weight: bold;
+            animation: coinFly 1s ease-out forwards;
+        }
+        
+        @keyframes coinFly {
+            0% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+            100% {
+                opacity: 0;
+                transform: translateY(-100px) scale(0.5);
+            }
+        }
+        
+        #gameStats {
+            display: flex;
+            gap: 15px;
+            font-size: 12px;
+        }
+        
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .stat-label {
+            font-size: 10px;
+            color: #aaa;
+            margin-bottom: 2px;
+        }
+        
+        .stat-value {
+            font-size: 14px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        
+        /* 实时图表容器 */
+        #realtimeChart {
+            width: 300px;
+            height: 64px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 4px;
+            position: relative;
+            overflow: hidden;
+            padding-top: 16px;
+        }
+        
+        #realtimeChart canvas {
+            display: block;
+            width: 100%;
+            height: calc(100% - 16px);
+        }
+        
+        .chart-legend {
+            position: absolute;
+            top: 2px;
+            left: 5px;
+            font-size: 10px;
+            display: flex;
+            gap: 10px;
+            z-index: 1;
+        }
+        
+        .chart-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .chart-legend-color {
+            width: 10px;
+            height: 2px;
+            display: inline-block;
+        }
+        
+        .chart-legend-color.speed {
+            background: #4CAF50;
+        }
+        
+        .chart-legend-color.gforce {
+            background: #FF9800;
+        }
+        
+        /* 底部导航栏 */
+        #bottomNav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 70px;
+            background: linear-gradient(0deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.85) 100%);
+            z-index: 200;
+            display: flex;
+            align-items: center;
+            justify-content: space-around;
+            padding: 5px 0;
+            backdrop-filter: blur(10px);
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .nav-button {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 8px;
+            background: transparent;
+            border: none;
+            color: #ccc;
+            cursor: pointer;
+            transition: all 0.3s;
+            min-width: 60px;
+            max-width: 100px;
+        }
+        
+        .nav-button:active {
+            transform: scale(0.9);
+        }
+        
+        .nav-button.active {
+            color: #4CAF50;
+            background: rgba(76, 175, 80, 0.1);
+        }
+        
+        .nav-button .icon {
+            font-size: 24px;
+            margin-bottom: 4px;
+        }
+        
+        .nav-button .label {
+            font-size: 11px;
+        }
+        
+        /* 主UI面板 */
+        #ui {
+            position: fixed;
+            top: 80px;
+            left: 0;
+            bottom: 70px;
+            width: 100%;
+            max-width: 400px;
+            max-height: calc(100vh - 130px);
+            z-index: 150;
+            background: rgba(0, 0, 0, 0.95);
+            padding: 15px;
+            border-radius: 0 8px 8px 0;
+            font-size: 13px;
+            overflow-y: auto;
+            transform: translateX(-100%);
+            transition: transform 0.3s ease;
+            backdrop-filter: blur(10px);
+            box-shadow: 2px 0 10px rgba(0,0,0,0.5);
+        }
+        
+        #ui.show {
+            transform: translateX(0);
+        }
+        
+        #ui.close-button {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: #fff;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        #ui h2 {
+            margin-bottom: 15px;
+            color: #4CAF50;
+            font-size: 18px;
+        }
+        
+        #ui .section {
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #333;
+        }
+        
+        #ui .section:last-child {
+            border-bottom: none;
+        }
+        
+        #ui label {
+            display: block;
+            margin-bottom: 5px;
+            color: #ccc;
+        }
+        
+        #ui input[type="range"] {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        
+        #ui input[type="number"] {
+            width: 80px;
+            padding: 5px;
+            background: #333;
+            border: 1px solid #555;
+            color: #fff;
+            border-radius: 4px;
+        }
+        
+        #ui button {
+            padding: 8px 15px;
+            margin: 5px 5px 5px 0;
+            background: #4CAF50;
+            border: none;
+            color: #fff;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        #ui button:hover {
+            background: #45a049;
+        }
+        
+        #ui button.danger {
+            background: #f44336;
+        }
+        
+        #ui button.danger:hover {
+            background: #da190b;
+        }
+        
+        .leaderboard-sort-btn {
+            transition: all 0.3s;
+        }
+        
+        .leaderboard-sort-btn:hover {
+            opacity: 0.8;
+            transform: scale(1.02);
+        }
+        
+        .leaderboard-sort-btn.active {
+            background: #4CAF50 !important;
+            font-weight: bold;
+        }
+        
+        #ui .info {
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(76, 175, 80, 0.2);
+            border-radius: 4px;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        
+        #ui .info strong {
+            color: #4CAF50;
+        }
+        
+        /* 游戏模式面板 */
+        #gamePanel {
+            position: fixed;
+            top: 80px;
+            left: 0;
+            right: 0;
+            bottom: 70px;
+            z-index: 100;
+            display: none; /* 默认隐藏，只在游戏模式下显示 */
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+        }
+        
+        .game-control-button {
+            pointer-events: auto;
+            padding: 15px 30px;
+            background: rgba(76, 175, 80, 0.9);
+            border: none;
+            color: #fff;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            transition: all 0.3s;
+        }
+        
+        .game-control-button:active {
+            transform: scale(0.95);
+        }
+        
+        .game-control-button.pause {
+            background: rgba(255, 152, 0, 0.9);
+        }
+        
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            #ui {
+                max-width: 90%;
+            }
+            
+            #topBar {
+                height: 70px;
+                padding: 6px 10px;
+            }
+            
+            #coinDisplay {
+                font-size: 20px;
+            }
+            
+            #coinDisplay .coin-icon {
+                font-size: 28px;
+            }
+            
+            #realtimeChart {
+                width: 200px;
+                height: 50px;
+                padding-top: 14px;
+            }
+            
+            #realtimeChart canvas {
+                height: calc(100% - 14px);
+            }
+            
+            .chart-legend {
+                font-size: 8px;
+            }
+            
+            #bottomNav {
+                height: 60px;
+            }
+            
+            .nav-button .icon {
+                font-size: 22px;
+            }
+            
+            .nav-button .label {
+                font-size: 10px;
+            }
+        }
+        
+        @media (orientation: landscape) and (max-height: 500px) {
+            #topBar {
+                height: 50px;
+                padding: 4px 10px;
+            }
+            
+            #bottomNav {
+                height: 50px;
+            }
+            
+            .nav-button .icon {
+                font-size: 20px;
+            }
+            
+            .nav-button .label {
+                font-size: 9px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <!-- 顶部状态栏 -->
+    <div id="topBar">
+        <div id="coinDisplay">
+            <span class="coin-icon">💰</span>
+            <span id="screamCoinDisplay">0</span>
+        </div>
+        <div id="gameStats">
+            <div id="realtimeChart">
+                <div class="chart-legend">
+                    <div class="chart-legend-item">
+                        <span class="chart-legend-color speed"></span>
+                        <span>速度 (m/s)</span>
+            </div>
+                    <div class="chart-legend-item">
+                        <span class="chart-legend-color gforce"></span>
+                        <span>G力</span>
+                    </div>
+                </div>
+                <canvas id="chartCanvas"></canvas>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">圈数</div>
+                <div class="stat-value" id="topLaps">0</div>
+            </div>
+        </div>
+        <!-- 游戏控制按钮（顶部快捷按钮） -->
+        <div id="topGameControls" style="display: flex; gap: 10px; align-items: center; margin-left: 15px;">
+            <button id="btnTopPlayPause" class="top-control-btn" style="padding: 8px 16px; background: rgba(76, 175, 80, 0.9); border: none; color: #fff; border-radius: 20px; font-size: 14px; font-weight: bold; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">▶️ 开始</button>
+            <button id="btnTopToggleCamera" class="top-control-btn" style="padding: 8px 16px; background: rgba(156, 39, 176, 0.9); border: none; color: #fff; border-radius: 20px; font-size: 14px; font-weight: bold; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">📹 视角</button>
+        </div>
+    </div>
+    
+    <!-- 底部导航栏 -->
+    <div id="bottomNav">
+        <button class="nav-button active" id="navPlay" data-panel="game">
+            <div class="icon">🎮</div>
+            <div class="label">游戏</div>
+        </button>
+        <button class="nav-button" id="navAchievements" data-panel="achievements">
+            <div class="icon">🏆</div>
+            <div class="label">成就</div>
+        </button>
+        <button class="nav-button" id="navEdit" data-panel="edit">
+            <div class="icon">✏️</div>
+            <div class="label">编辑</div>
+        </button>
+        <button class="nav-button" id="navSettings" data-panel="settings">
+            <div class="icon">🏆</div>
+            <div class="label">排行榜</div>
+        </button>
+    </div>
+    
+    <!-- 主UI面板 -->
+    <div id="ui">
+        <button class="close-button" id="uiCloseBtn">×</button>
+        <h2>🎢 过山车轨道编辑器</h2>
+        
+        <div class="section">
+            <h3>过山车类型</h3>
+            <div id="coasterTypeInfo" style="font-size: 12px; line-height: 1.8; margin-bottom: 10px;">
+                <div><strong>当前类型:</strong> <span id="currentTypeName">木架过山车</span></div>
+                <div id="typeDescription" style="color: #aaa; margin-top: 5px;">经典的木制过山车，只能通过牵引到顶部，然后自由滑下。</div>
+                <div style="margin-top: 5px;">
+                    <strong>特性:</strong> <span id="typeFeatures">牵引到顶, 自由滑下</span>
+                </div>
+                <div style="margin-top: 5px;">
+                    <strong>限制:</strong> 最大高度 <span id="maxHeight">30</span>m | 
+                    最大速度 <span id="maxSpeed">25</span> m/s | 
+                    最大G力 <span id="maxGForce">3.5</span>G
+                </div>
+            </div>
+            <button id="btnUpgrade" style="background: #FF9800; display: none;">升级到下一阶段</button>
+            <div id="upgradeInfo" style="font-size: 11px; color: #FF9800; margin-top: 5px; display: none;">
+                完成当前过山车设计后可解锁下一阶段
+            </div>
+        </div>
+        
+
+        <div class="section" id="achievementsSection" style="display: none;">
+            <h3>🏆 成就系统</h3>
+            <div style="font-size: 12px; margin-bottom: 8px;">
+                完成度: <span id="achievementProgress">0</span> / <span id="achievementTotal">0</span> 
+                (<span id="achievementPercent">0</span>%)
+            </div>
+            <div style="margin-bottom: 8px;">
+                <button id="btnShowAchievements">查看成就</button>
+            </div>
+            <div id="achievementsList" style="display: none; max-height: 300px; overflow-y: auto; font-size: 11px;">
+                <!-- 成就列表将在这里动态生成 -->
+            </div>
+        </div>
+        
+        <div class="section" id="editSection" style="display: none;">
+            <h3>✏️ 编辑轨道</h3>
+            
+            <!-- 过山车管理（已简化：仅保留一条轨道） -->
+            <div style="display: none; margin-bottom: 20px; padding: 15px; background: rgba(33, 150, 243, 0.1); border-radius: 8px; border: 1px solid rgba(33, 150, 243, 0.3);">
+                <h4 style="margin: 0 0 10px 0; color: #2196F3;">🎢 过山车管理</h4>
+                <div style="font-size: 12px; margin-bottom: 10px;">
+                    当前过山车: <span id="currentCoasterName">过山车 1</span><br>
+                    总过山车数: <span id="totalCoasters">1</span>
+                </div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+                    <button id="btnCreateCoaster" style="display: none; padding: 6px 12px; background: #4CAF50; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 12px;" disabled>
+                        ➕ 新建过山车（已禁用）
+                    </button>
+                    <button id="btnDeleteCoaster" style="display: none; padding: 6px 12px; background: #F44336; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 12px;" disabled>
+                        🗑️ 删除当前（已禁用）
+                    </button>
+                </div>
+                <div id="coasterList" style="display: none; max-height: 150px; overflow-y: auto; font-size: 11px;">
+                    <!-- 多过山车管理已禁用 -->
+                </div>
+            </div>
+            
+            <!-- 选择保存轨道对话框 -->
+            <div id="selectTrackDialog" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #2a2a2a; border: 2px solid #555; padding: 20px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.8); z-index: 1000; min-width: 400px; max-width: 600px; max-height: 80vh; overflow-y: auto;">
+                <h4 style="margin: 0 0 15px 0; color: #fff; font-size: 16px;">选择轨道模板</h4>
+                <p style="font-size: 12px; color: #bbb; margin-bottom: 15px;">从已保存的轨道中选择一个作为新过山车的模板</p>
+                <div id="savedTracksList" style="margin-bottom: 15px;">
+                    <!-- 保存的轨道列表将在这里动态生成 -->
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                    <button id="btnCancelSelectTrack" style="padding: 8px 15px; background: #666; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 12px;">取消</button>
+                </div>
+            </div>
+            
+            <!-- 轨道操作 -->
+            <div style="margin-bottom: 15px; padding: 10px; background: rgba(255, 152, 0, 0.1); border-radius: 6px; border: 1px solid rgba(255, 152, 0, 0.3);">
+                <h4 style="margin: 0 0 10px 0; color: #FF9800; font-size: 14px;">🔧 轨道操作</h4>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button id="btnMoveCoaster" style="display: none; padding: 6px 12px; background: #FF9800; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 12px;" disabled>
+                        📍 移动轨道（已禁用）
+                    </button>
+                    <button id="btnRotateCoaster" style="display: none; padding: 6px 12px; background: #FF9800; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 12px;" disabled>
+                        🔄 旋转轨道（已禁用）
+                    </button>
+                </div>
+                <div id="coasterTransformControls" style="display: none; margin-top: 10px; font-size: 11px;">
+                    <div style="margin-bottom: 5px;">位置: X <input type="number" id="coasterPosX" step="0.1" style="width: 60px;"> Y <input type="number" id="coasterPosY" step="0.1" style="width: 60px;"> Z <input type="number" id="coasterPosZ" step="0.1" style="width: 60px;"></div>
+                    <div style="margin-bottom: 5px;">旋转: <input type="number" id="coasterRotation" step="1" style="width: 60px;"> 度</div>
+                    <button id="btnApplyTransform" style="padding: 4px 8px; background: #4CAF50; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 11px;">应用</button>
+                </div>
+            </div>
+            
+            <div class="section" id="controlPointControls" style="display: none;">
+                <h4>控制点操作</h4>
+                <div id="controlPointData" style="margin-bottom: 15px;">
+                    <div style="font-size: 12px; color: #bbb; margin-bottom: 6px;">控制点坐标 (米)</div>
+                    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                        <label style="flex:1; min-width: 70px;">X
+                            <input type="number" id="pointPosX" step="0.1" style="width: 100%;">
+                        </label>
+                        <label style="flex:1; min-width: 70px;">Y
+                            <input type="number" id="pointPosY" step="0.1" style="width: 100%;">
+                        </label>
+                        <label style="flex:1; min-width: 70px;">Z
+                            <input type="number" id="pointPosZ" step="0.1" style="width: 100%;">
+                        </label>
+                    </div>
+                    
+                    <div style="font-size: 12px; color: #bbb; margin: 10px 0 6px;">左侧切线方向（单位向量）</div>
+                    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                        <label style="flex:1; min-width: 70px;">X
+                            <input type="number" id="leftDirX" step="0.01" style="width: 100%;">
+                        </label>
+                        <label style="flex:1; min-width: 70px;">Y
+                            <input type="number" id="leftDirY" step="0.01" style="width: 100%;">
+                        </label>
+                        <label style="flex:1; min-width: 70px;">Z
+                            <input type="number" id="leftDirZ" step="0.01" style="width: 100%;">
+                        </label>
+                    </div>
+                    
+                    <div style="font-size: 12px; color: #bbb; margin: 10px 0 6px;">右侧切线方向（单位向量）</div>
+                    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                        <label style="flex:1; min-width: 70px;">X
+                            <input type="number" id="rightDirX" step="0.01" style="width: 100%;">
+                        </label>
+                        <label style="flex:1; min-width: 70px;">Y
+                            <input type="number" id="rightDirY" step="0.01" style="width: 100%;">
+                        </label>
+                        <label style="flex:1; min-width: 70px;">Z
+                            <input type="number" id="rightDirZ" step="0.01" style="width: 100%;">
+                        </label>
+                    </div>
+                </div>
+            <button id="btnAddPoint">添加控制点 (A)</button>
+            <div id="addPointControls" style="display: none; margin-top: 10px;">
+                <label>
+                    插入位置: <span id="insertPositionValue">0.5</span>
+                    <input type="range" id="insertPosition" min="0" max="1" step="0.01" value="0.5">
+                </label>
+                <button id="btnConfirmAdd" style="margin-top: 5px;">确认添加</button>
+                <button id="btnCancelAdd" style="margin-top: 5px;">取消</button>
+            </div>
+            <button id="btnDeletePoint" class="danger" style="margin-top: 5px;">删除选中点 (Del)</button>
+            
+            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #444;">
+                <h4 style="margin-top: 0; margin-bottom: 10px;">切线长度调整</h4>
+                <label>
+                    左侧切线长度: <span id="leftTangentLengthValue">0.0</span>
+                    <input type="range" id="leftTangentLength" min="0" max="10" step="0.1" value="0.0">
+                </label>
+                <label>
+                    右侧切线长度: <span id="rightTangentLengthValue">0.0</span>
+                    <input type="range" id="rightTangentLength" min="0" max="10" step="0.1" value="0.0">
+                </label>
+            </div>
+            
+            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #444;">
+                <h4 style="margin-top: 0; margin-bottom: 10px;">特殊区域</h4>
+                <button id="btnToggleLift">切换牵引区域 (L)</button>
+                <div id="liftStatus" style="margin-top: 5px; font-size: 12px; color: #4CAF50; display: none;">
+                    当前选中点: <span id="liftStatusText">非牵引区域</span>
+                </div>
+                <!-- 站台区域已固定，不再需要手动设置 -->
+                <div id="platformStatus" style="margin-top: 5px; font-size: 12px; color: #9C27B0; display: none;">
+                    站台区域: <span id="platformStatusText">固定位置（-x, 5, 0）到（0, 5, 0）</span>
+                </div>
+                <div id="electromagneticControls" style="display: none; margin-top: 10px;">
+                    <button id="btnToggleElectromagneticBoost" style="background: #2196F3;">电磁加速 (B)</button>
+                    <button id="btnToggleElectromagneticBrake" style="margin-top: 5px; background: #F44336;">电磁减速 (N)</button>
+                    <div id="electromagneticStatus" style="margin-top: 5px; font-size: 12px; color: #2196F3; display: none;">
+                        当前选中点: <span id="electromagneticStatusText">无电磁区域</span>
+                    </div>
+                    <label id="electromagneticAccelLabel" style="display: none; margin-top: 5px;">
+                        加速度 (m/s²): <span id="electromagneticAccelValue">5.0</span>
+                        <input type="range" id="electromagneticAccel" min="0" max="5" step="0.5" value="5">
+                    </label>
+                </div>
+            </div>
+
+            <!-- 轨道存档 -->
+            <div class="section" id="saveSection" style="margin-top: 20px;">
+                <h3>轨道存档</h3>
+                <div style="margin-bottom: 8px;">
+                    <label style="font-size: 12px; margin-right: 6px; display: flex; align-items: center; gap: 6px;">
+                        存档槽：
+                        <select id="saveSlotSelect" style="padding: 4px 8px; background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; font-size: 12px; cursor: pointer; min-width: 70px;">
+                            <option value="0">槽 1</option>
+                            <option value="1">槽 2</option>
+                            <option value="2">槽 3</option>
+                            <option value="3">槽 4</option>
+                            <option value="4">槽 5</option>
+                            <option value="5">槽 6</option>
+                            <option value="6">槽 7</option>
+                            <option value="7">槽 8</option>
+                            <option value="8">槽 9</option>
+                            <option value="9">槽 10</option>
+                        </select>
+                    </label>
+                    <button id="btnSaveTrack">保存到本地</button>
+                    <button id="btnLoadTrack" disabled>加载存档</button>
+                </div>
+                <div style="margin-bottom: 8px;">
+                    <button id="btnExportTrack">导出JSON</button>
+                    <button id="btnImportTrack">导入JSON</button>
+                    <input type="file" id="importTrackInput" accept="application/json" style="display: none;">
+                </div>
+                <div id="saveSlotInfo" class="info" style="display: block; font-size: 11px; color: #ccc;">
+                    槽 1: 空
+                </div>
+                <div id="saveStatus" class="info" style="display: none; font-size: 12px;">
+                    存档状态将在此显示。
+                </div>
+            </div>
+
+            <!-- 底部操作按钮 -->
+            <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #555;">
+                <div style="display: flex; justify-content: center; align-items: center; gap: 10px; margin-bottom: 15px;">
+                    <label style="font-size: 13px; color: #ccc; display: flex; align-items: center; gap: 6px;">
+                        存档槽：
+                        <select id="quickSaveSlotSelect" style="padding: 6px 10px; background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; font-size: 13px; cursor: pointer; min-width: 80px;">
+                            <option value="0">槽 1</option>
+                            <option value="1">槽 2</option>
+                            <option value="2">槽 3</option>
+                            <option value="3">槽 4</option>
+                            <option value="4">槽 5</option>
+                            <option value="5">槽 6</option>
+                            <option value="6">槽 7</option>
+                            <option value="7">槽 8</option>
+                            <option value="8">槽 9</option>
+                            <option value="9">槽 10</option>
+                        </select>
+                    </label>
+                </div>
+                <div style="display: flex; justify-content: center; gap: 15px;">
+                    <button id="btnQuickSave" style="background: #2196F3; color: white; padding: 12px 24px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: bold;">
+                        保存
+                    </button>
+                    <button id="btnQuickLoad" style="background: #FF9800; color: white; padding: 12px 24px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: bold;">
+                        读取
+                    </button>
+                    <button id="btnQuickApply" style="background: #4CAF50; color: white; padding: 12px 24px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: bold;">
+                        应用
+                    </button>
+                </div>
+            </div>
+            <div id="applyCostInfo" class="info" style="margin-top: 10px; text-align: center; font-size: 12px; color: #bbb; display: none;">
+                应用费用: <span id="applyCostValue">0</span> 惊叫币
+            </div>
+        </div>
+        
+        <div class="section" id="physicsMetrics" style="display: none;">
+            <h3>实时物理数据</h3>
+            <div style="font-size: 12px; line-height: 1.8;">
+                <div>速度: <span id="currentSpeed">0.0</span> m/s</div>
+                <div>加速度: <span id="currentAcceleration">0.0</span> m/s²</div>
+                <div>总G力: <span id="currentGForce">0.0</span> G</div>
+                <div>垂直G力: <span id="currentVerticalG">0.0</span> G</div>
+                <div>横向G力: <span id="currentLateralG">0.0</span> G</div>
+            </div>
+        </div>
+        
+        <div class="section" id="coasterMetrics" style="display: none;">
+            <h3>轨道特征指数</h3>
+            <div style="font-size: 12px; line-height: 1.8;">
+                <div>🎢 尖叫指数: <span id="screamIndex">0</span>/100</div>
+                <div>⚡ 刺激指数: <span id="thrillIndex">0</span>/100</div>
+                <div>😌 舒适度指数: <span id="comfortIndex">0</span>/100</div>
+                <div>🛡️ 安全指数: <span id="safetyIndex">0</span>/100</div>
+            </div>
+        </div>
+        
+        <div class="section" id="maxMetrics" style="display: none;">
+            <h3>历史最大值</h3>
+            <div style="font-size: 12px; line-height: 1.8;">
+                <div>最大速度: <span id="maxSpeed">0.0</span> m/s</div>
+                <div>最大G力: <span id="maxGForce">0.0</span> G</div>
+                <div>最大垂直G: <span id="maxVerticalG">0.0</span> G</div>
+                <div>最大横向G: <span id="maxLateralG">0.0</span> G</div>
+                <div>最大加速度: <span id="maxAcceleration">0.0</span> m/s²</div>
+            </div>
+        </div>
+        
+        <div class="section" id="settingsSection" style="display: none;">
+            <h3>🏆 排行榜</h3>
+            
+            <!-- 玩家信息 -->
+            <div style="margin-bottom: 15px; padding: 10px; background: rgba(76, 175, 80, 0.1); border-radius: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div style="font-size: 12px; color: #aaa;">玩家名称:</div>
+                    <input type="text" id="playerNameInput" placeholder="输入玩家名称" 
+                           style="flex: 1; max-width: 200px; padding: 4px 8px; background: #333; border: 1px solid #555; color: #fff; border-radius: 4px; font-size: 12px; margin-left: 10px;">
+                    <button id="btnSetPlayerName" style="margin-left: 8px; padding: 4px 12px; background: #4CAF50; border: none; color: #fff; border-radius: 4px; font-size: 12px; cursor: pointer;">设置</button>
+                </div>
+                <div style="font-size: 11px; color: #888;">当前玩家: <span id="currentPlayerName">-</span></div>
+            </div>
+            
+            <!-- 当前过山车数据 -->
+            <div style="margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <h4 style="color: #FFD700; margin: 0;">当前过山车数据</h4>
+                    <button id="btnSubmitToLeaderboard" style="padding: 6px 15px; background: #2196F3; border: none; color: #fff; border-radius: 4px; font-size: 12px; cursor: pointer;">提交到排行榜</button>
+                </div>
+                <div id="leaderboardCurrent" style="background: rgba(76, 175, 80, 0.1); padding: 15px; border-radius: 8px; border: 2px solid #4CAF50;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px;">
+                        <div>
+                            <div style="color: #aaa; font-size: 11px; margin-bottom: 3px;">💰 过山车价值</div>
+                            <div style="color: #FFD700; font-size: 18px; font-weight: bold;" id="coasterValue">计算中...</div>
+                        </div>
+                        <div>
+                            <div style="color: #aaa; font-size: 11px; margin-bottom: 3px;">👥 人气指数</div>
+                            <div style="color: #FF9800; font-size: 18px; font-weight: bold;" id="coasterPopularity">计算中...</div>
+                        </div>
+                        <div>
+                            <div style="color: #aaa; font-size: 11px; margin-bottom: 3px;">⭐ 综合评分</div>
+                            <div style="color: #4CAF50; font-size: 18px; font-weight: bold;" id="coasterRating">计算中...</div>
+                        </div>
+                        <div>
+                            <div style="color: #aaa; font-size: 11px; margin-bottom: 3px;">🎢 总圈数</div>
+                            <div style="color: #2196F3; font-size: 18px; font-weight: bold;" id="coasterLaps">0</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 排行榜排序选项 -->
+            <div style="margin-bottom: 15px;">
+                <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                    <button class="leaderboard-sort-btn active" data-sort="value" style="flex: 1; padding: 6px; background: #4CAF50; border: none; color: #fff; border-radius: 4px; font-size: 11px; cursor: pointer;">按价值</button>
+                    <button class="leaderboard-sort-btn" data-sort="popularity" style="flex: 1; padding: 6px; background: #555; border: none; color: #fff; border-radius: 4px; font-size: 11px; cursor: pointer;">按人气</button>
+                    <button class="leaderboard-sort-btn" data-sort="rating" style="flex: 1; padding: 6px; background: #555; border: none; color: #fff; border-radius: 4px; font-size: 11px; cursor: pointer;">按评分</button>
+                </div>
+            </div>
+            
+            <!-- 排行榜列表 -->
+            <div style="margin-bottom: 20px;">
+                <h4 style="color: #4CAF50; margin-bottom: 10px;">排行榜</h4>
+                <div id="leaderboardList" style="max-height: 400px; overflow-y: auto; font-size: 12px;">
+                    <div style="text-align: center; color: #888; padding: 20px;">暂无排行榜数据</div>
+                </div>
+            </div>
+            
+            <div class="info" style="margin-top: 15px; font-size: 11px;">
+                <strong>说明：</strong><br>
+                • 点击"提交到排行榜"将当前轨道数据提交到排行榜<br>
+                • 排行榜最多显示前50名玩家<br>
+                • 每个玩家只保留最佳记录<br>
+                • 过山车价值 = 综合评分 × 轨道长度系数 × 类型系数<br>
+                • 人气指数 = 总圈数 × 评分系数 + 完成度奖励
+            </div>
+        </div>
+    </div>
+    
+    <!-- 游戏模式控制面板 -->
+    <div id="gamePanel">
+        <button class="game-control-button" id="btnPlayPause">▶️ 开始游戏</button>
+        <button class="game-control-button" id="btnResetGame">🔄 重置</button>
+        <button class="game-control-button" id="btnToggleCamera" style="background: rgba(156, 39, 176, 0.9);">📹 切换视角</button>
+    </div>
+    
+    <script type="module">
+        import { Editor } from './editor.js';
+        import { Vec3 } from './math3d.js';
+        import { LeaderboardManager } from './leaderboard.js';
+        
+        console.log('开始初始化编辑器...');
+        
+        let editor = null;
+        let leaderboardManager = null;
+        const canvas = document.getElementById('canvas');
+        if (!canvas) {
+            console.error('找不到canvas元素');
+        } else {
+            console.log('Canvas元素找到:', canvas);
+            try {
+                editor = new Editor(canvas);
+                window.editor = editor; // 方便调试
+                console.log('编辑器创建成功');
+                
+                // 初始化排行榜管理器
+                leaderboardManager = new LeaderboardManager();
+                window.leaderboardManager = leaderboardManager; // 方便调试
+                console.log('排行榜管理器创建成功');
+            } catch (error) {
+                console.error('编辑器创建失败:', error);
+                alert('编辑器初始化失败: ' + error.message);
+            }
+        }
+        
+        // UI控制
+        let isAddingPoint = false;
+        let previewPointIndex = -1;
+        
+        let originalSelectedIndex = -1; // 保存原始选中索引
+        
+        function showAddPointControls() {
+            if (editor.selectedPointIndex >= 0 && editor.selectedPointIndex < editor.spline.pointCount) {
+                isAddingPoint = true;
+                originalSelectedIndex = editor.selectedPointIndex; // 保存原始选中索引
+                document.getElementById('addPointControls').style.display = 'block';
+                document.getElementById('btnAddPoint').disabled = true;
+                // 重置滑条到0.5
+                document.getElementById('insertPosition').value = 0.5;
+                document.getElementById('insertPositionValue').textContent = '0.5';
+                updateAddPointPreview();
+            }
+        }
+        
+        function hideAddPointControls() {
+            isAddingPoint = false;
+            document.getElementById('addPointControls').style.display = 'none';
+            // 移除预览点
+            if (previewPointIndex >= 0 && previewPointIndex < editor.spline.pointCount) {
+                const oldIndex = previewPointIndex;
+                editor.spline.removePoint(oldIndex);
+                previewPointIndex = -1;
+                // 恢复原始选中索引
+                if (originalSelectedIndex >= 0 && originalSelectedIndex < editor.spline.pointCount) {
+                    editor.selectedPointIndex = originalSelectedIndex;
+                } else if (editor.spline.pointCount > 0) {
+                    editor.selectedPointIndex = Math.min(originalSelectedIndex, editor.spline.pointCount - 1);
+                }
+                editor.updateTrack();
+            }
+            originalSelectedIndex = -1;
+            if (window.updateControlPointUI) {
+                window.updateControlPointUI();
+            }
+        }
+        
+        function updateAddPointPreview() {
+            if (!isAddingPoint || originalSelectedIndex < 0) return;
+            
+            const t = parseFloat(document.getElementById('insertPosition').value);
+            const segmentIndex = originalSelectedIndex; // 使用原始选中索引
+            
+            // 移除之前的预览点
+            if (previewPointIndex >= 0 && previewPointIndex < editor.spline.pointCount) {
+                const oldIndex = previewPointIndex;
+                editor.spline.removePoint(oldIndex);
+                previewPointIndex = -1;
+                // 如果移除的点在原始选中点之前或等于，需要调整原始索引
+                if (oldIndex <= originalSelectedIndex) {
+                    originalSelectedIndex = Math.max(0, originalSelectedIndex - 1);
+                }
+            }
+            
+            // 确保段索引有效
+            if (segmentIndex < 0 || segmentIndex >= editor.spline.segmentCount) {
+                return;
+            }
+            
+            // 添加预览点
+            const newIndex = editor.spline.insertPointAtSegment(segmentIndex, t);
+            if (newIndex >= 0) {
+                previewPointIndex = newIndex;
+                // 更新选中索引为预览点，这样可以看到预览效果
+                editor.selectedPointIndex = newIndex;
+                editor.updateTrack();
+            }
+        }
+        
+        document.getElementById('btnAddPoint').addEventListener('click', () => {
+            if (editor.trackLengthExceeded) {
+                alert('当前轨道长度已达到上限，请升级轨道长度或缩短轨道。');
+                return;
+            }
+            if (editor.selectedPointIndex >= 0 && editor.selectedPointIndex < editor.spline.pointCount) {
+                showAddPointControls();
+            } else {
+                alert('请先选择一个控制点');
+            }
+        });
+        
+        document.getElementById('insertPosition').addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            document.getElementById('insertPositionValue').textContent = value.toFixed(2);
+            updateAddPointPreview();
+        });
+        
+        document.getElementById('btnConfirmAdd').addEventListener('click', () => {
+            if (previewPointIndex >= 0 && previewPointIndex < editor.spline.pointCount) {
+                // 预览点已经是实际添加的点，只需要选中它
+                editor.selectedPointIndex = previewPointIndex;
+                previewPointIndex = -1;
+                originalSelectedIndex = -1;
+                isAddingPoint = false;
+                document.getElementById('addPointControls').style.display = 'none';
+                document.getElementById('btnAddPoint').disabled = false;
+                editor.updateTrack();
+                updateStatus();
+                if (window.updateLiftStatus) {
+                    window.updateLiftStatus();
+                }
+            if (window.updatePlatformStatus) {
+                window.updatePlatformStatus();
+                }
+                if (window.updateElectromagneticStatus) {
+                    window.updateElectromagneticStatus();
+                }
+            }
+        });
+        
+        document.getElementById('btnCancelAdd').addEventListener('click', () => {
+            hideAddPointControls();
+        });
+        
+        document.getElementById('btnDeletePoint').addEventListener('click', () => {
+            if (editor.selectedPointIndex >= 0 && editor.spline.pointCount > 2) {
+                editor.spline.removePoint(editor.selectedPointIndex);
+                editor.selectedPointIndex = Math.max(0, Math.min(editor.selectedPointIndex, editor.spline.pointCount - 1));
+                editor.updateTrack();
+                updateStatus();
+            }
+        });
+
+        // 存档相关
+        const btnSaveTrack = document.getElementById('btnSaveTrack');
+        const btnLoadTrack = document.getElementById('btnLoadTrack');
+        const btnExportTrack = document.getElementById('btnExportTrack');
+        const btnImportTrack = document.getElementById('btnImportTrack');
+        const importTrackInput = document.getElementById('importTrackInput');
+
+        if (btnSaveTrack) {
+            btnSaveTrack.addEventListener('click', () => {
+                if (editor.saveProjectStateToLocal) {
+                    const slotSelect = document.getElementById('saveSlotSelect');
+                    const slot = slotSelect ? parseInt(slotSelect.value, 10) || 0 : 0;
+                    editor.saveProjectStateToLocal(slot);
+                    // 保存后立即刷新槽位显示
+                    if (window.refreshSaveControls && editor.getAllLocalSaves) {
+                        const slots = editor.getAllLocalSaves();
+                        const hasAny = slots.some(s => s.exists);
+                        window.refreshSaveControls(hasAny, slots);
+                    }
+                }
+            });
+        }
+
+        if (btnLoadTrack) {
+            btnLoadTrack.addEventListener('click', () => {
+                if (editor.loadProjectStateFromLocal) {
+                    const slotSelect = document.getElementById('saveSlotSelect');
+                    const slot = slotSelect ? parseInt(slotSelect.value, 10) || 0 : 0;
+                    editor.loadProjectStateFromLocal(slot);
+                }
+            });
+        }
+
+        if (btnExportTrack) {
+            btnExportTrack.addEventListener('click', () => {
+                if (editor.exportProjectState) {
+                    editor.exportProjectState();
+                }
+            });
+        }
+
+        if (btnImportTrack && importTrackInput) {
+            btnImportTrack.addEventListener('click', () => importTrackInput.click());
+            importTrackInput.addEventListener('change', (event) => {
+                const file = event.target.files && event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = JSON.parse(e.target.result);
+                        if (editor.importProjectState) {
+                            editor.importProjectState(data);
+                        }
+                    } catch (error) {
+                        console.error('导入存档失败', error);
+                        alert('导入失败: ' + error.message);
+                    } finally {
+                        importTrackInput.value = '';
+                    }
+                };
+                reader.readAsText(file);
+            });
+        }
+
+        // 快速操作按钮（保存、读取、应用）
+        const btnQuickSave = document.getElementById('btnQuickSave');
+        const btnQuickLoad = document.getElementById('btnQuickLoad');
+        const btnQuickApply = document.getElementById('btnQuickApply');
+        const applyCostInfo = document.getElementById('applyCostInfo');
+        const applyCostValue = document.getElementById('applyCostValue');
+
+        // 同步两个槽位选择器的值
+        const quickSlotSelect = document.getElementById('quickSaveSlotSelect');
+        const mainSlotSelect = document.getElementById('saveSlotSelect');
+        
+        function syncSlotSelectors(source, target) {
+            if (source && target && source.value !== target.value) {
+                target.value = source.value;
+                // 触发刷新
+                if (window.refreshSaveControls && editor.getAllLocalSaves) {
+                    const slots = editor.getAllLocalSaves();
+                    const hasAny = slots.some(s => s.exists);
+                    window.refreshSaveControls(hasAny, slots);
+                }
+            }
+        }
+        
+        if (quickSlotSelect && mainSlotSelect) {
+            quickSlotSelect.addEventListener('change', () => {
+                syncSlotSelectors(quickSlotSelect, mainSlotSelect);
+            });
+            mainSlotSelect.addEventListener('change', () => {
+                syncSlotSelectors(mainSlotSelect, quickSlotSelect);
+            });
+        }
+
+        if (btnQuickSave) {
+            btnQuickSave.addEventListener('click', () => {
+                if (editor.saveProjectStateToLocal) {
+                    // 优先使用快速选择器，如果没有则使用主选择器
+                    const slotSelect = quickSlotSelect || mainSlotSelect;
+                    const slot = slotSelect ? parseInt(slotSelect.value, 10) || 0 : 0;
+                    editor.saveProjectStateToLocal(slot);
+                    // 同步选择器
+                    if (quickSlotSelect && mainSlotSelect) {
+                        syncSlotSelectors(quickSlotSelect, mainSlotSelect);
+                    }
+                    // 刷新显示
+                    if (window.refreshSaveControls && editor.getAllLocalSaves) {
+                        const slots = editor.getAllLocalSaves();
+                        const hasAny = slots.some(s => s.exists);
+                        window.refreshSaveControls(hasAny, slots);
+                    }
+                    alert(`已保存到槽 ${slot + 1}`);
+                }
+            });
+        }
+
+        if (btnQuickLoad) {
+            btnQuickLoad.addEventListener('click', () => {
+                if (editor.loadProjectStateFromLocal) {
+                    // 优先使用快速选择器，如果没有则使用主选择器
+                    const slotSelect = quickSlotSelect || mainSlotSelect;
+                    const slot = slotSelect ? parseInt(slotSelect.value, 10) || 0 : 0;
+                    editor.loadProjectStateFromLocal(slot);
+                    // 同步选择器
+                    if (quickSlotSelect && mainSlotSelect) {
+                        syncSlotSelectors(quickSlotSelect, mainSlotSelect);
+                    }
+                    alert(`已从槽 ${slot + 1} 加载`);
+                }
+            });
+        }
+
+        if (btnQuickApply) {
+            btnQuickApply.addEventListener('click', () => {
+                if (editor.applyEditTrackToGame) {
+                    editor.applyEditTrackToGame(true);
+                }
+            });
+        }
+
+        // 更新应用费用显示
+        function updateApplyCostDisplay() {
+            if (editor && editor.computeApplyEditTrackCost && applyCostInfo && applyCostValue) {
+                const cost = editor.computeApplyEditTrackCost();
+                const coins = editor.screamCoins || 0;
+                applyCostValue.textContent = cost;
+                applyCostInfo.style.display = 'block';
+                // 如果币不足，显示红色提示
+                if (cost > coins) {
+                    applyCostInfo.style.color = '#F44336';
+                } else {
+                    applyCostInfo.style.color = '#bbb';
+                }
+            }
+        }
+
+        // 暴露到全局，供其他函数调用
+        window.updateApplyCostDisplay = updateApplyCostDisplay;
+
+        // 定期更新应用费用显示
+        if (applyCostInfo) {
+            setInterval(updateApplyCostDisplay, 1000);
+        }
+        
+        // 切换牵引区域
+        document.getElementById('btnToggleLift').addEventListener('click', () => {
+            if (editor.selectedPointIndex >= 0 && editor.selectedPointIndex < editor.spline.pointCount) {
+                const point = editor.spline.getControlPoint(editor.selectedPointIndex);
+                if (point) {
+                    // 如果切换到牵引区域，先清除其他区域
+                    if (!point.isLiftSection) {
+                        point.isElectromagneticBoost = false;
+                        point.isElectromagneticBrake = false;
+                        point.isPlatformSection = false;
+                    }
+                    point.isLiftSection = !point.isLiftSection;
+                    editor.updateTrack();
+                    updateLiftStatus();
+                    updateElectromagneticStatus();
+                    updatePlatformStatus();
+                }
+            }
+        });
+        
+        // 站台区域已固定，不再需要手动设置
+        
+        // 切换电磁加速（仅现代过山车）
+        document.getElementById('btnToggleElectromagneticBoost').addEventListener('click', () => {
+            if (editor.selectedPointIndex >= 0 && editor.selectedPointIndex < editor.spline.pointCount) {
+                const point = editor.spline.getControlPoint(editor.selectedPointIndex);
+                if (point && editor.coasterTypeManager.supportsFeature('电磁加速')) {
+                    // 如果切换到电磁加速，先清除其他区域
+                    if (!point.isElectromagneticBoost) {
+                        point.isLiftSection = false;
+                        point.isElectromagneticBrake = false;
+                    }
+                    point.isElectromagneticBoost = !point.isElectromagneticBoost;
+                    if (point.isElectromagneticBoost && (!point.electromagneticAcceleration || point.electromagneticAcceleration <= 0)) {
+                        const limit = editor.getBoostAccelerationLimit ? editor.getBoostAccelerationLimit() : 5;
+                        point.electromagneticAcceleration = limit;
+                    }
+                    editor.updateTrack();
+                    updateElectromagneticStatus();
+                    updateLiftStatus();
+                    // 检查电磁系统使用成就
+                    if (editor.checkElectromagneticUsage) {
+                        editor.checkElectromagneticUsage();
+                    }
+                }
+            }
+        });
+        
+        // 切换电磁减速（仅现代过山车）
+        document.getElementById('btnToggleElectromagneticBrake').addEventListener('click', () => {
+            if (editor.selectedPointIndex >= 0 && editor.selectedPointIndex < editor.spline.pointCount) {
+                const point = editor.spline.getControlPoint(editor.selectedPointIndex);
+                if (point && editor.coasterTypeManager.supportsFeature('电磁减速')) {
+                    // 如果切换到电磁减速，先清除其他区域
+                    if (!point.isElectromagneticBrake) {
+                        point.isLiftSection = false;
+                        point.isElectromagneticBoost = false;
+                    }
+                    point.isElectromagneticBrake = !point.isElectromagneticBrake;
+                    if (point.isElectromagneticBrake && (!point.electromagneticAcceleration || point.electromagneticAcceleration <= 0)) {
+                        const limit = editor.getBrakeAccelerationLimit ? editor.getBrakeAccelerationLimit() : 5;
+                        point.electromagneticAcceleration = limit;
+                    }
+                    editor.updateTrack();
+                    updateElectromagneticStatus();
+                    updateLiftStatus();
+                    // 检查电磁系统使用成就
+                    if (editor.checkElectromagneticUsage) {
+                        editor.checkElectromagneticUsage();
+                    }
+                }
+            }
+        });
+        
+        // 电磁速度控制
+        document.getElementById('electromagneticAccel').addEventListener('input', (e) => {
+            if (editor.selectedPointIndex >= 0 && editor.selectedPointIndex < editor.spline.pointCount) {
+                const point = editor.spline.getControlPoint(editor.selectedPointIndex);
+                if (point && (point.isElectromagneticBoost || point.isElectromagneticBrake)) {
+                    const rawValue = parseFloat(e.target.value);
+                    const limit = point.isElectromagneticBoost
+                        ? (editor.getBoostAccelerationLimit ? editor.getBoostAccelerationLimit() : rawValue)
+                        : (editor.getBrakeAccelerationLimit ? editor.getBrakeAccelerationLimit() : rawValue);
+                    const value = Math.min(rawValue, limit);
+                    e.target.value = value;
+                    document.getElementById('electromagneticAccelValue').textContent = value.toFixed(1);
+                    point.electromagneticAcceleration = value;
+                }
+            }
+        });
+        
+        // 升级过山车类型（消耗惊叫币）
+        document.getElementById('btnUpgrade').addEventListener('click', () => {
+            if (editor.upgradeCoasterType) {
+                editor.upgradeCoasterType();
+            }
+        });
+        
+        // 更新过山车类型UI
+        function updateCoasterTypeUI() {
+            const currentType = editor.coasterTypeManager.getCurrentType();
+            document.getElementById('currentTypeName').textContent = currentType.displayName;
+            document.getElementById('typeDescription').textContent = currentType.description;
+            document.getElementById('typeFeatures').textContent = currentType.features.join(', ');
+            document.getElementById('maxHeight').textContent = currentType.maxHeight;
+            document.getElementById('maxSpeed').textContent = currentType.maxSpeed;
+            document.getElementById('maxGForce').textContent = currentType.maxGForce;
+            
+            // 更新升级按钮
+            const btnUpgrade = document.getElementById('btnUpgrade');
+            const upgradeInfo = document.getElementById('upgradeInfo');
+            if (editor.coasterTypeManager.canUpgrade()) {
+                const currentIndex = editor.coasterTypeManager.getAllTypes().findIndex(t => t === currentType);
+                const nextType = editor.coasterTypeManager.getAllTypes()[currentIndex + 1];
+                btnUpgrade.style.display = 'block';
+                btnUpgrade.textContent = `升级到 ${nextType.displayName}`;
+                upgradeInfo.style.display = 'block';
+                // 显示升级所需惊叫币（基于当前轨道）
+                if (editor.computeCoasterUpgradeCost) {
+                    const cost = editor.computeCoasterUpgradeCost(nextType.name);
+                    upgradeInfo.textContent = `升级费用约为 ${cost.toFixed(0)} 惊叫币（与轨道长度、牵引、站台、电磁有关）`;
+                }
+            } else {
+                btnUpgrade.style.display = 'none';
+                upgradeInfo.style.display = 'none';
+            }
+            
+            // 更新电磁控制显示（仅现代过山车）
+            const electromagneticControls = document.getElementById('electromagneticControls');
+            if (editor.coasterTypeManager.supportsFeature('电磁加速')) {
+                electromagneticControls.style.display = 'block';
+            } else {
+                electromagneticControls.style.display = 'none';
+            }
+            
+            // 更新速度滑块最大值
+            const speedSlider = document.getElementById('speed');
+            if (speedSlider) {
+                speedSlider.max = currentType.maxSpeed;
+            }
+        }
+        
+        // 更新电磁区域状态显示
+        function updateElectromagneticStatus() {
+            const electromagneticStatus = document.getElementById('electromagneticStatus');
+            const electromagneticStatusText = document.getElementById('electromagneticStatusText');
+            const electromagneticAccelLabel = document.getElementById('electromagneticAccelLabel');
+            const electromagneticAccelSlider = document.getElementById('electromagneticAccel');
+            const electromagneticAccelValue = document.getElementById('electromagneticAccelValue');
+            
+            if (editor.selectedPointIndex >= 0 && editor.selectedPointIndex < editor.spline.pointCount) {
+                const point = editor.spline.getControlPoint(editor.selectedPointIndex);
+                if (point) {
+                    if (point.isElectromagneticBoost) {
+                        const accel = point.electromagneticAcceleration || 0;
+                        const limit = editor.getBoostAccelerationLimit ? editor.getBoostAccelerationLimit() : 5;
+                        electromagneticStatus.style.display = 'block';
+                        electromagneticStatus.style.color = '#2196F3';
+                        electromagneticStatusText.textContent = `电磁加速 (加速度: ${accel.toFixed(1)} m/s²)`;
+                        electromagneticAccelLabel.style.display = 'block';
+                        electromagneticAccelSlider.max = limit;
+                        electromagneticAccelSlider.value = Math.min(accel, limit);
+                        electromagneticAccelValue.textContent = Math.min(accel, limit).toFixed(1);
+                    } else if (point.isElectromagneticBrake) {
+                        const accel = point.electromagneticAcceleration || 0;
+                        const limit = editor.getBrakeAccelerationLimit ? editor.getBrakeAccelerationLimit() : 5;
+                        electromagneticStatus.style.display = 'block';
+                        electromagneticStatus.style.color = '#F44336';
+                        electromagneticStatusText.textContent = `电磁减速 (减速度: ${accel.toFixed(1)} m/s²)`;
+                        electromagneticAccelLabel.style.display = 'block';
+                        electromagneticAccelSlider.max = limit;
+                        electromagneticAccelSlider.value = Math.min(accel, limit);
+                        electromagneticAccelValue.textContent = Math.min(accel, limit).toFixed(1);
+                    } else {
+                        electromagneticStatus.style.display = 'none';
+                        electromagneticAccelLabel.style.display = 'none';
+                    }
+                } else {
+                    electromagneticStatus.style.display = 'none';
+                    electromagneticAccelLabel.style.display = 'none';
+                }
+            } else {
+                electromagneticStatus.style.display = 'none';
+                electromagneticAccelLabel.style.display = 'none';
+            }
+        }
+        
+        // 更新牵引区域状态显示
+        function updateLiftStatus() {
+            const liftStatus = document.getElementById('liftStatus');
+            const liftStatusText = document.getElementById('liftStatusText');
+            if (editor.selectedPointIndex >= 0 && editor.selectedPointIndex < editor.spline.pointCount) {
+                const point = editor.spline.getControlPoint(editor.selectedPointIndex);
+                if (point) {
+                    liftStatus.style.display = 'block';
+                    if (point.isLiftSection) {
+                        liftStatusText.textContent = `牵引区域 (速度: ${point.liftSpeed.toFixed(1)} m/s)`;
+                        liftStatus.style.color = '#FF9800';
+                    } else {
+                        liftStatusText.textContent = '非牵引区域';
+                        liftStatus.style.color = '#4CAF50';
+                    }
+                } else {
+                    liftStatus.style.display = 'none';
+                }
+            } else {
+                liftStatus.style.display = 'none';
+            }
+        }
+        
+        // 更新站台区域状态显示
+        function updatePlatformStatus() {
+            const platformStatus = document.getElementById('platformStatus');
+            const platformStatusText = document.getElementById('platformStatusText');
+            if (editor.selectedPointIndex >= 0 && editor.selectedPointIndex < editor.spline.pointCount) {
+                const point = editor.spline.getControlPoint(editor.selectedPointIndex);
+                if (point) {
+                    platformStatus.style.display = 'block';
+                    if (point.isPlatformSection) {
+                        const height = point.platformHeight !== null ? point.platformHeight.toFixed(1) : point.position.y.toFixed(1);
+                        platformStatusText.textContent = `站台区域 (高度: ${height} m)`;
+                        platformStatus.style.color = '#9C27B0';
+                    } else {
+                        platformStatusText.textContent = '非站台区域';
+                        platformStatus.style.color = '#9C27B0';
+                    }
+                } else {
+                    platformStatus.style.display = 'none';
+                }
+            } else {
+                platformStatus.style.display = 'none';
+            }
+        }
+        
+        // 当前排行榜排序方式
+        let currentSortBy = 'value';
+        
+        // 计算当前过山车数据
+        function calculateCurrentCoasterData() {
+            if (!editor || !editor.car) return null;
+            
+            try {
+                const metrics = editor.car.getPhysicsMetrics();
+                const gameState = editor.getGameState();
+                const currentType = editor.coasterTypeManager ? editor.coasterTypeManager.getCurrentType() : null;
+                
+                // 计算综合评分
+                const scream = metrics.screamIndex || 0;
+                const thrill = metrics.thrillIndex || 0;
+                const comfort = metrics.comfortIndex || 0;
+                const safety = metrics.safetyIndex || 0;
+                const rating = (scream + thrill + comfort + safety) / 4;
+                
+                // 获取轨道统计数据
+                const trackStats = editor.getTrackEconomyStats ? editor.getTrackEconomyStats('game') : { totalLength: 0 };
+                const trackLength = trackStats.totalLength || 0;
+                
+                // 计算过山车价值
+                const lengthFactor = 1 + (trackLength / 1000);
+                let typeFactor = 1;
+                if (currentType) {
+                    if (currentType.name === 'wooden') typeFactor = 1.0;
+                    else if (currentType.name === 'steel') typeFactor = 1.5;
+                    else if (currentType.name === 'modern') typeFactor = 2.0;
+                }
+                const coasterValue = Math.round(rating * lengthFactor * typeFactor);
+                
+                // 计算人气指数
+                const laps = gameState.totalLaps || 0;
+                const ratingFactor = rating / 100;
+                const completionBonus = rating >= 80 ? 50 : (rating >= 60 ? 30 : (rating >= 40 ? 10 : 0));
+                const popularity = Math.round(laps * ratingFactor * 10 + completionBonus);
+                
+                return {
+                    coasterValue,
+                    popularity,
+                    rating,
+                    laps,
+                    trackLength,
+                    coasterType: currentType ? currentType.displayName : '未知',
+                    maxSpeed: metrics.maxSpeed || 0,
+                    maxGForce: metrics.maxGForce || 0,
+                    screamIndex: scream,
+                    thrillIndex: thrill,
+                    comfortIndex: comfort,
+                    safetyIndex: safety,
+                    trackData: editor.getProjectState ? editor.getProjectState() : null
+                };
+            } catch (e) {
+                console.warn('计算过山车数据失败:', e);
+                return null;
+            }
+        }
+        
+        // 更新当前过山车数据显示
+        function updateCurrentCoasterDisplay() {
+            const data = calculateCurrentCoasterData();
+            if (!data) return;
+            
+            const valueEl = document.getElementById('coasterValue');
+            const popularityEl = document.getElementById('coasterPopularity');
+            const ratingEl = document.getElementById('coasterRating');
+            const lapsEl = document.getElementById('coasterLaps');
+            
+            if (valueEl) valueEl.textContent = data.coasterValue.toLocaleString();
+            if (popularityEl) popularityEl.textContent = data.popularity.toLocaleString();
+            if (ratingEl) ratingEl.textContent = data.rating.toFixed(1);
+            if (lapsEl) lapsEl.textContent = data.laps;
+        }
+        
+        // 显示排行榜列表
+        async function displayLeaderboard(sortBy = 'value') {
+            if (!leaderboardManager) return;
+            
+            const listEl = document.getElementById('leaderboardList');
+            if (!listEl) return;
+            
+            // 显示加载中
+            listEl.innerHTML = '<div style="text-align: center; color: #888; padding: 20px;">加载中...</div>';
+            
+            try {
+                const entries = await leaderboardManager.getLeaderboard(sortBy, 50);
+                const currentPlayerName = leaderboardManager.getPlayerName();
+            
+                if (entries.length === 0) {
+                    listEl.innerHTML = '<div style="text-align: center; color: #888; padding: 20px;">暂无排行榜数据，提交你的轨道来成为第一名！</div>';
+                    return;
+                }
+            
+            let html = '<div style="border: 1px solid #444; border-radius: 4px; overflow: hidden;">';
+            
+            // 表头
+            html += '<div style="display: grid; grid-template-columns: 50px 1fr 120px 100px 100px 100px; gap: 8px; padding: 8px; background: rgba(76, 175, 80, 0.2); font-weight: bold; font-size: 11px; border-bottom: 1px solid #444;">';
+            html += '<div style="text-align: center;">排名</div>';
+            html += '<div>玩家名称</div>';
+            html += '<div style="text-align: right;">价值</div>';
+            html += '<div style="text-align: right;">人气</div>';
+            html += '<div style="text-align: right;">评分</div>';
+            html += '<div style="text-align: right;">圈数</div>';
+            html += '</div>';
+            
+            // 排行榜条目
+            entries.forEach((entry, index) => {
+                const rank = index + 1;
+                const isCurrentPlayer = entry.playerName === currentPlayerName;
+                const bgColor = isCurrentPlayer ? 'rgba(76, 175, 80, 0.15)' : (rank % 2 === 0 ? 'rgba(255, 255, 255, 0.02)' : 'transparent');
+                const borderColor = isCurrentPlayer ? '#4CAF50' : 'transparent';
+                
+                html += `<div style="display: grid; grid-template-columns: 50px 1fr 120px 100px 100px 100px; gap: 8px; padding: 8px; background: ${bgColor}; border-left: 3px solid ${borderColor}; font-size: 11px; border-bottom: 1px solid rgba(255,255,255,0.05);">`;
+                
+                // 排名
+                let rankDisplay = rank;
+                if (rank === 1) rankDisplay = '🥇';
+                else if (rank === 2) rankDisplay = '🥈';
+                else if (rank === 3) rankDisplay = '🥉';
+                html += `<div style="text-align: center; font-weight: bold; color: ${rank <= 3 ? '#FFD700' : '#aaa'};">${rankDisplay}</div>`;
+                
+                // 玩家名称
+                html += `<div style="color: ${isCurrentPlayer ? '#4CAF50' : '#fff'}; font-weight: ${isCurrentPlayer ? 'bold' : 'normal'};">${entry.playerName}${isCurrentPlayer ? ' (你)' : ''}</div>`;
+                
+                // 价值
+                html += `<div style="text-align: right; color: #FFD700;">${entry.coasterValue.toLocaleString()}</div>`;
+                
+                // 人气
+                html += `<div style="text-align: right; color: #FF9800;">${entry.popularity.toLocaleString()}</div>`;
+                
+                // 评分
+                html += `<div style="text-align: right; color: #4CAF50;">${entry.rating.toFixed(1)}</div>`;
+                
+                // 圈数
+                html += `<div style="text-align: right; color: #2196F3;">${entry.laps}</div>`;
+                
+                html += '</div>';
+            });
+                
+                html += '</div>';
+                listEl.innerHTML = html;
+            } catch (error) {
+                console.error('显示排行榜失败:', error);
+                listEl.innerHTML = '<div style="text-align: center; color: #f44336; padding: 20px;">加载排行榜失败，请检查服务器连接</div>';
+            }
+        }
+        
+        // 更新排行榜数据（兼容旧代码）
+        async function updateLeaderboard() {
+            updateCurrentCoasterDisplay();
+            await displayLeaderboard(currentSortBy);
+        }
+        
+        // 提交到排行榜
+        async function submitToLeaderboard() {
+            if (!leaderboardManager) {
+                alert('排行榜管理器未初始化');
+                return;
+            }
+            
+            const data = calculateCurrentCoasterData();
+            if (!data) {
+                alert('无法获取过山车数据，请先运行游戏');
+                return;
+            }
+            
+            // 显示提交中
+            const btnSubmit = document.getElementById('btnSubmitToLeaderboard');
+            const originalText = btnSubmit ? btnSubmit.textContent : '';
+            if (btnSubmit) {
+                btnSubmit.disabled = true;
+                btnSubmit.textContent = '提交中...';
+            }
+            
+            try {
+                const result = await leaderboardManager.submitCoaster(data);
+                if (result.success) {
+                    alert(result.message + (result.rank ? `，当前排名：第 ${result.rank} 名` : ''));
+                    await displayLeaderboard(currentSortBy);
+                } else {
+                    alert(result.message || '提交失败');
+                }
+            } catch (error) {
+                console.error('提交失败:', error);
+                alert('提交失败：' + (error.message || '网络错误'));
+            } finally {
+                if (btnSubmit) {
+                    btnSubmit.disabled = false;
+                    btnSubmit.textContent = originalText;
+                }
+            }
+        }
+        
+        // 设置玩家名称
+        function setPlayerName() {
+            if (!leaderboardManager) return;
+            
+            const input = document.getElementById('playerNameInput');
+            if (!input) return;
+            
+            const name = input.value.trim();
+            if (name.length < 2) {
+                alert('玩家名称至少需要2个字符');
+                return;
+            }
+            
+            if (name.length > 20) {
+                alert('玩家名称不能超过20个字符');
+                return;
+            }
+            
+            if (leaderboardManager.setPlayerName(name)) {
+                updatePlayerNameDisplay();
+                alert('玩家名称已更新');
+            }
+        }
+        
+        // 更新玩家名称显示
+        function updatePlayerNameDisplay() {
+            if (!leaderboardManager) return;
+            
+            const nameEl = document.getElementById('currentPlayerName');
+            const inputEl = document.getElementById('playerNameInput');
+            
+            const playerName = leaderboardManager.getPlayerName();
+            if (nameEl) nameEl.textContent = playerName;
+            if (inputEl && !inputEl.value) inputEl.placeholder = playerName;
+        }
+        
+        // 排行榜排序按钮事件
+        document.querySelectorAll('.leaderboard-sort-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const sortBy = btn.dataset.sort;
+                currentSortBy = sortBy;
+                
+                // 更新按钮样式
+                document.querySelectorAll('.leaderboard-sort-btn').forEach(b => {
+                    b.classList.remove('active');
+                    b.style.background = '#555';
+                });
+                btn.classList.add('active');
+                btn.style.background = '#4CAF50';
+                
+                // 更新排行榜显示
+                await displayLeaderboard(sortBy);
+            });
+        });
+        
+        // 提交到排行榜按钮
+        const btnSubmit = document.getElementById('btnSubmitToLeaderboard');
+        if (btnSubmit) {
+            btnSubmit.addEventListener('click', submitToLeaderboard);
+        }
+        
+        // 设置玩家名称按钮
+        const btnSetName = document.getElementById('btnSetPlayerName');
+        if (btnSetName) {
+            btnSetName.addEventListener('click', setPlayerName);
+        }
+        
+        // 玩家名称输入框回车事件
+        const playerNameInput = document.getElementById('playerNameInput');
+        if (playerNameInput) {
+            playerNameInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    setPlayerName();
+                }
+            });
+        }
+        
+        // 暴露给全局，供editor.js调用
+        window.updateControlPointUI = updateControlPointUI;
+        window.updateLiftStatus = updateLiftStatus;
+        window.updatePlatformStatus = updatePlatformStatus;
+        window.updateElectromagneticStatus = updateElectromagneticStatus;
+        window.updateCoasterTypeUI = updateCoasterTypeUI;
+        window.updateLeaderboard = updateLeaderboard;
+        
+        // 初始化时更新过山车类型UI
+        setTimeout(() => {
+            if (editor && window.updateCoasterTypeUI) {
+                window.updateCoasterTypeUI();
+            }
+            if (editor && window.updateEconomyUI) {
+                editor.updateEconomyUI();
+            }
+            if (editor && window.updateParkUI) {
+                window.updateParkUI();
+            }
+            if (editor && window.updateCoasterList) {
+                window.updateCoasterList();
+            }
+            if (editor && window.updateTrackLengthWarning) {
+                editor.updateTrackLengthWarning();
+            }
+            if (editor && window.refreshSaveControls) {
+                const slots = editor.getAllLocalSaves ? editor.getAllLocalSaves() : null;
+                const hasSave = slots ? slots.some(s => s.exists) : (editor.hasLocalSave ? editor.hasLocalSave() : false);
+                window.refreshSaveControls(hasSave, slots);
+                if (hasSave && window.updateSaveStatus) {
+                    window.updateSaveStatus('检测到本地存档，可随时加载');
+                }
+            }
+            if (editor && editor.achievementManager && window.updateAchievementsUI) {
+                window.updateAchievementsUI(editor.achievementManager);
+            }
+            // 初始化排行榜数据
+            if (editor && window.updateLeaderboard) {
+                setTimeout(updateLeaderboard, 200);
+            }
+            // 初始化玩家名称显示
+            if (leaderboardManager) {
+                updatePlayerNameDisplay();
+            }
+        }, 500);
+        
+        // 相机控制（已移除，保留代码以防需要）
+        const btnResetCamera = document.getElementById('btnResetCamera');
+        if (btnResetCamera) {
+            btnResetCamera.addEventListener('click', () => {
+            editor.renderer.setCamera(
+                new Vec3(0, 5, 15),
+                new Vec3(0, 0, 0)
+            );
+        });
+        }
+        
+        // 重置物理数据（已移除，保留代码以防需要）
+        const btnResetPhysics = document.getElementById('btnResetPhysics');
+        if (btnResetPhysics) {
+            btnResetPhysics.addEventListener('click', () => {
+            if (editor.car && editor.car.physics) {
+                editor.car.physics.reset();
+                if (typeof editor.car.resetProgress === 'function') {
+                    editor.car.resetProgress(0);
+                } else {
+                editor.car.position = 0;
+                }
+            }
+        });
+        }
+        
+        // 速度控制（已移除，保留代码以防需要）
+        const speedSlider = document.getElementById('speed');
+        if (speedSlider) {
+        speedSlider.addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+                const speedValueEl = document.getElementById('speedValue');
+                if (speedValueEl) {
+                    speedValueEl.textContent = value.toFixed(1);
+                }
+            editor.trackGenerator.speed = value;
+            editor.updateTrack();
+        });
+        }
+        
+        // 过山车管理
+        function updateCoasterList() {
+            if (!editor || !editor.coasterManager) return;
+            
+            const coasterList = document.getElementById('coasterList');
+            const currentCoasterName = document.getElementById('currentCoasterName');
+            const totalCoasters = document.getElementById('totalCoasters');
+            const btnDeleteCoaster = document.getElementById('btnDeleteCoaster');
+            
+            if (!coasterList) return;
+            
+            const coasters = editor.coasterManager.getAllCoasters();
+            const currentCoaster = editor.coasterManager.getCurrentCoaster();
+            
+            if (totalCoasters) totalCoasters.textContent = coasters.length;
+            if (currentCoasterName && currentCoaster) {
+                currentCoasterName.textContent = currentCoaster.name;
+            }
+            if (btnDeleteCoaster) {
+                btnDeleteCoaster.style.display = coasters.length > 1 ? 'inline-block' : 'none';
+            }
+            
+            // 更新过山车列表
+            coasterList.innerHTML = '';
+            coasters.forEach(coaster => {
+                const item = document.createElement('div');
+                item.style.cssText = 'padding: 6px; margin: 4px 0; background: ' + 
+                    (coaster.id === editor.coasterManager.currentCoasterId ? 'rgba(33, 150, 243, 0.3)' : 'rgba(255,255,255,0.05)') + 
+                    '; border-radius: 4px; cursor: pointer; border: 1px solid ' +
+                    (coaster.id === editor.coasterManager.currentCoasterId ? '#2196F3' : 'transparent') + ';';
+                item.textContent = coaster.name + (coaster.id === editor.coasterManager.currentCoasterId ? ' (当前)' : '');
+                item.addEventListener('click', () => {
+                    editor.switchCoaster(coaster.id);
+                    updateCoasterList();
+                });
+                coasterList.appendChild(item);
+            });
+        }
+        window.updateCoasterList = updateCoasterList;
+        
+        // 显示选择轨道对话框
+        function showSelectTrackDialog() {
+            if (!editor || !editor.getAllLocalSaves) return;
+            
+            const dialog = document.getElementById('selectTrackDialog');
+            const tracksList = document.getElementById('savedTracksList');
+            if (!dialog || !tracksList) return;
+            
+            // 获取所有已保存的轨道
+            const slots = editor.getAllLocalSaves();
+            const savedTracks = [];
+            
+            // 获取存储key的辅助函数
+            function getStorageKeyForSlot(slotIndex) {
+                const idx = Number.isFinite(slotIndex) ? Math.max(0, Math.min(9, Math.floor(slotIndex))) : 0;
+                if (idx === 0) {
+                    return 'webgl-rollercoaster:state:v1';
+                }
+                return `webgl-rollercoaster:state:v1:slot${idx}`;
+            }
+            
+            for (let i = 0; i < slots.length; i++) {
+                if (slots[i].exists) {
+                    try {
+                        const key = getStorageKeyForSlot(i);
+                        const raw = window.localStorage.getItem(key);
+                        if (raw) {
+                            const data = JSON.parse(raw);
+                            const splineData = data.editSpline || data.spline;
+                            if (splineData && splineData.points && splineData.points.length >= 2) {
+                                savedTracks.push({
+                                    slotIndex: i,
+                                    slotLabel: i + 1,
+                                    savedAt: data.savedAt || null,
+                                    pointCount: splineData.points.length,
+                                    coasterType: data.coasterTypes?.currentType || 'wooden'
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        console.error('读取保存轨道失败', e);
+                    }
+                }
+            }
+            
+            // 清空列表
+            tracksList.innerHTML = '';
+            
+            if (savedTracks.length === 0) {
+                tracksList.innerHTML = '<div style="padding: 20px; text-align: center; color: #888; font-size: 12px;">没有找到已保存的轨道<br>请先保存一个轨道</div>';
+            } else {
+                savedTracks.forEach(track => {
+                    const item = document.createElement('div');
+                    item.style.cssText = 'padding: 10px; margin: 6px 0; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; cursor: pointer; transition: all 0.2s;';
+                    item.addEventListener('mouseenter', () => {
+                        item.style.background = 'rgba(33, 150, 243, 0.2)';
+                        item.style.borderColor = '#2196F3';
+                    });
+                    item.addEventListener('mouseleave', () => {
+                        item.style.background = 'rgba(255,255,255,0.05)';
+                        item.style.borderColor = 'rgba(255,255,255,0.1)';
+                    });
+                    
+                    const savedAtText = track.savedAt ? new Date(track.savedAt).toLocaleString('zh-CN') : '未知时间';
+                    const typeNames = { wooden: '木架', steel: '钢架', modern: '现代' };
+                    const typeName = typeNames[track.coasterType] || track.coasterType;
+                    
+                    item.innerHTML = `
+                        <div style="font-weight: bold; color: #fff; margin-bottom: 4px;">槽位 ${track.slotLabel}</div>
+                        <div style="font-size: 11px; color: #aaa;">
+                            类型: ${typeName} | 控制点: ${track.pointCount} 个<br>
+                            保存时间: ${savedAtText}
+                        </div>
+                    `;
+                    
+                    item.addEventListener('click', () => {
+                        // 加载选中的轨道数据
+                        try {
+                            const key = getStorageKeyForSlot(track.slotIndex);
+                            const raw = window.localStorage.getItem(key);
+                            if (raw) {
+                                const data = JSON.parse(raw);
+                                
+                                // 创建新过山车，使用保存的轨道数据
+                                const coasterId = editor.coasterManager.createCoaster(
+                                    track.coasterType,
+                                    { x: 0, y: 5, z: 0 },
+                                    data
+                                );
+                                
+                                editor.switchCoaster(coasterId);
+                                updateCoasterList();
+                                editor.updateTrack();
+                                
+                                // 关闭对话框
+                                dialog.style.display = 'none';
+                            }
+                        } catch (e) {
+                            console.error('加载轨道失败', e);
+                            alert('加载轨道失败: ' + e.message);
+                        }
+                    });
+                    
+                    tracksList.appendChild(item);
+                });
+            }
+            
+            // 显示对话框
+            dialog.style.display = 'block';
+        }
+        
+        // 创建新过山车
+        document.getElementById('btnCreateCoaster').addEventListener('click', () => {
+            if (!editor || !editor.coasterManager) return;
+            showSelectTrackDialog();
+        });
+        
+        // 取消选择轨道对话框
+        document.getElementById('btnCancelSelectTrack').addEventListener('click', () => {
+            const dialog = document.getElementById('selectTrackDialog');
+            if (dialog) {
+                dialog.style.display = 'none';
+            }
+        });
+        
+        // 点击对话框外部关闭
+        document.getElementById('selectTrackDialog')?.addEventListener('click', (e) => {
+            if (e.target.id === 'selectTrackDialog') {
+                e.target.style.display = 'none';
+            }
+        });
+        
+        // 删除当前过山车
+        document.getElementById('btnDeleteCoaster').addEventListener('click', () => {
+            if (!editor || !editor.coasterManager) return;
+            
+            const currentCoaster = editor.coasterManager.getCurrentCoaster();
+            if (!currentCoaster) return;
+            
+            if (editor.coasterManager.getAllCoasters().length <= 1) {
+                alert('至少需要保留一个过山车');
+                return;
+            }
+            
+            if (confirm(`确定要删除 "${currentCoaster.name}" 吗？`)) {
+                editor.coasterManager.deleteCoaster(currentCoaster.id);
+                editor.syncCurrentCoaster();
+                updateCoasterList();
+                editor.updateTrack();
+            }
+        });
+        
+        
+        // 游戏状态（已迁移到 Editor 类，这里保留用于兼容）
+        let gameRunning = false;
+        let gamePaused = false;
+        let totalLaps = 0;
+        
+        // 惊叫币收集动画
+        function showCoinAnimation(amount, x, y) {
+            if (!amount || amount <= 0) return;
+            
+            const coin = document.createElement('div');
+            coin.className = 'coin-animation';
+            coin.textContent = `+${amount}💰`;
+            
+            // 如果没有指定位置，在屏幕中央显示
+            const centerX = x !== undefined ? x : window.innerWidth / 2;
+            const centerY = y !== undefined ? y : window.innerHeight / 2;
+            
+            coin.style.left = centerX + 'px';
+            coin.style.top = centerY + 'px';
+            coin.style.transform = 'translate(-50%, -50%)';
+            
+            document.body.appendChild(coin);
+            
+            // 更新顶部惊叫币显示（带动画）
+            const coinDisplay = document.getElementById('screamCoinDisplay');
+            if (coinDisplay) {
+                coinDisplay.style.transition = 'transform 0.3s';
+                coinDisplay.style.transform = 'scale(1.2)';
+                setTimeout(() => {
+                    coinDisplay.style.transform = 'scale(1)';
+                }, 300);
+            }
+            
+            setTimeout(() => {
+                if (coin.parentNode) {
+                    coin.parentNode.removeChild(coin);
+                }
+            }, 1000);
+        }
+        
+        // 暴露到全局
+        window.showCoinAnimation = showCoinAnimation;
+        
+        // 实时图表数据
+        const chartData = {
+            speed: [],
+            gForce: [],
+            time: [],
+            maxTimeWindow: 30, // 显示最近30秒的数据
+            maxSpeed: 0,
+            maxGForce: 0
+        };
+        
+        // 初始化图表
+        const chartCanvas = document.getElementById('chartCanvas');
+        let chartCtx = null;
+        if (chartCanvas) {
+            chartCtx = chartCanvas.getContext('2d');
+            // 设置canvas尺寸
+            const resizeChart = () => {
+                const rect = chartCanvas.getBoundingClientRect();
+                chartCanvas.width = rect.width * window.devicePixelRatio;
+                chartCanvas.height = rect.height * window.devicePixelRatio;
+                chartCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            };
+            resizeChart();
+            window.addEventListener('resize', resizeChart);
+        }
+        
+        // 绘制实时图表
+        function drawRealtimeChart() {
+            if (!chartCtx || !chartCanvas) return;
+            
+            const width = chartCanvas.width / window.devicePixelRatio;
+            const height = chartCanvas.height / window.devicePixelRatio;
+            
+            // 清空画布
+            chartCtx.clearRect(0, 0, width, height);
+            
+            if (chartData.time.length < 2) return;
+            
+            // 计算时间范围
+            const currentTime = Date.now() / 1000;
+            const minTime = currentTime - chartData.maxTimeWindow;
+            
+            // 过滤数据（只显示最近的时间窗口）
+            const filteredData = [];
+            for (let i = 0; i < chartData.time.length; i++) {
+                if (chartData.time[i] >= minTime) {
+                    filteredData.push({
+                        time: chartData.time[i],
+                        speed: chartData.speed[i],
+                        gForce: chartData.gForce[i]
+                    });
+                }
+            }
+            
+            if (filteredData.length < 2) return;
+            
+            // 计算Y轴范围（速度和G力）
+            let maxSpeed = 0;
+            let maxGForce = 0;
+            for (const data of filteredData) {
+                maxSpeed = Math.max(maxSpeed, data.speed);
+                maxGForce = Math.max(maxGForce, data.gForce);
+            }
+            
+            // 添加一些边距，确保有合理的显示范围
+            maxSpeed = Math.max(maxSpeed, 10);
+            maxGForce = Math.max(maxGForce, 2);
+            
+            // 绘制背景网格
+            chartCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+            chartCtx.lineWidth = 1;
+            for (let i = 0; i <= 4; i++) {
+                const y = (height / 4) * i;
+                chartCtx.beginPath();
+                chartCtx.moveTo(0, y);
+                chartCtx.lineTo(width, y);
+                chartCtx.stroke();
+            }
+            
+            // 绘制零线（G力）
+            const zeroLineY = height * 0.75; // G力的零线位置
+            chartCtx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            chartCtx.lineWidth = 1;
+            chartCtx.beginPath();
+            chartCtx.moveTo(0, zeroLineY);
+            chartCtx.lineTo(width, zeroLineY);
+            chartCtx.stroke();
+            
+            // 绘制速度曲线（绿色，上半部分）
+            chartCtx.strokeStyle = '#4CAF50';
+            chartCtx.lineWidth = 2;
+            chartCtx.beginPath();
+            for (let i = 0; i < filteredData.length; i++) {
+                const x = (i / (filteredData.length - 1)) * width;
+                const normalizedSpeed = filteredData[i].speed / maxSpeed;
+                const y = height * 0.25 - (normalizedSpeed * height * 0.25); // 上半部分
+                if (i === 0) {
+                    chartCtx.moveTo(x, y);
+                } else {
+                    chartCtx.lineTo(x, y);
+                }
+            }
+            chartCtx.stroke();
+            
+            // 绘制G力曲线（橙色，下半部分）
+            chartCtx.strokeStyle = '#FF9800';
+            chartCtx.lineWidth = 2;
+            chartCtx.beginPath();
+            for (let i = 0; i < filteredData.length; i++) {
+                const x = (i / (filteredData.length - 1)) * width;
+                const normalizedGForce = filteredData[i].gForce / maxGForce;
+                const y = zeroLineY - (normalizedGForce * height * 0.25); // 下半部分，从零线向上
+                if (i === 0) {
+                    chartCtx.moveTo(x, y);
+                } else {
+                    chartCtx.lineTo(x, y);
+                }
+            }
+            chartCtx.stroke();
+            
+            // 绘制当前值标签（右上角）
+            if (filteredData.length > 0) {
+                const last = filteredData[filteredData.length - 1];
+                chartCtx.fillStyle = '#4CAF50';
+                chartCtx.font = 'bold 10px monospace';
+                chartCtx.fillText(`${last.speed.toFixed(0)} m/s`, width - 65, 18);
+                chartCtx.fillStyle = '#FF9800';
+                chartCtx.fillText(`${last.gForce.toFixed(1)}G`, width - 50, 31);
+            }
+            
+            // 绘制Y轴标签
+            chartCtx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            chartCtx.font = '8px monospace';
+            chartCtx.textAlign = 'left';
+            chartCtx.fillText(`${maxSpeed.toFixed(0)}`, 2, 16);
+            chartCtx.fillText(`${maxGForce.toFixed(1)}`, 2, height - 2);
+        }
+        
+        // 更新顶部状态栏
+        function updateTopBar() {
+            if (!editor || !editor.car) return;
+            
+            // 确保 trackGenerator 已初始化生成器
+            if (editor.trackGenerator && typeof editor.trackGenerator.getGenerator === 'function') {
+                try {
+                    // 尝试获取生成器，确保它已创建
+                    editor.trackGenerator.getGenerator();
+                } catch (e) {
+                    console.warn('updateTopBar: 生成器未准备好', e);
+                    return;
+                }
+            }
+            
+            try {
+                const metrics = editor.car.getPhysicsMetrics();
+                const lapsEl = document.getElementById('topLaps');
+                const coinEl = document.getElementById('screamCoinDisplay');
+                
+                // 更新圈数和惊叫币
+                const currentLaps = editor ? editor.getGameState().totalLaps : totalLaps;
+                if (lapsEl) lapsEl.textContent = currentLaps;
+                if (coinEl) coinEl.textContent = Math.floor(editor.screamCoins || 0);
+                
+                // 收集图表数据
+                const currentTime = Date.now() / 1000;
+                const speed = metrics.speed || 0;
+                const gForce = metrics.gForce.total || 0;
+                
+                chartData.time.push(currentTime);
+                chartData.speed.push(speed);
+                chartData.gForce.push(gForce);
+                
+                // 限制数据量（保留最近的数据）
+                const maxDataPoints = 300; // 约30秒的数据（假设每100ms更新一次）
+                if (chartData.time.length > maxDataPoints) {
+                    chartData.time.shift();
+                    chartData.speed.shift();
+                    chartData.gForce.shift();
+                }
+                
+                // 更新最大值
+                chartData.maxSpeed = Math.max(chartData.maxSpeed, speed);
+                chartData.maxGForce = Math.max(chartData.maxGForce, gForce);
+                
+                // 绘制图表
+                drawRealtimeChart();
+            } catch (e) {
+                // 如果生成器还未准备好，静默失败
+                console.warn('updateTopBar: 无法获取物理指标', e);
+            }
+        }
+        
+        // 导航栏切换
+        const panels = {
+            game: { ui: false, panel: true },
+            achievements: { ui: true, section: 'achievementsSection' },
+            edit: { ui: true, section: 'editSection' },
+            settings: { ui: true, section: 'settingsSection' }
+        };
+        
+        let currentPanel = 'game';
+        
+        function switchPanel(panelName) {
+            const uiEl = document.getElementById('ui');
+            const gamePanelEl = document.getElementById('gamePanel');
+            const navButtons = document.querySelectorAll('.nav-button');
+            
+            // 更新导航按钮状态
+            navButtons.forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.panel === panelName) {
+                    btn.classList.add('active');
+                }
+            });
+            
+            const panel = panels[panelName];
+            if (!panel) return;
+            
+            currentPanel = panelName;
+            
+            // 设置编辑模式（只在编辑面板时启用）
+            if (editor && editor.setEditMode) {
+                const isEditMode = panelName === 'edit';
+                editor.setEditMode(isEditMode);
+                // 确保在切换到游戏模式时清空曲线
+                if (!isEditMode) {
+                    // 强制清空曲线显示
+                    if (editor.renderer) {
+                        editor.renderer.setCurveLineMesh([], false);
+                    }
+                }
+            }
+
+            
+            // 显示/隐藏游戏面板和顶部控制按钮
+            const topGameControls = document.getElementById('topGameControls');
+            if (panelName === 'game') {
+                gamePanelEl.style.display = 'flex';
+                if (topGameControls) topGameControls.style.display = 'flex';
+                uiEl.classList.remove('show');
+            } else {
+                gamePanelEl.style.display = 'none';
+                if (topGameControls) topGameControls.style.display = 'none';
+                uiEl.classList.add('show');
+                
+                // 显示对应的section
+                document.querySelectorAll('#ui .section').forEach(section => {
+                    section.style.display = 'none';
+                });
+                
+                if (panel.section) {
+                    const targetSection = document.getElementById(panel.section);
+                    if (targetSection) {
+                        targetSection.style.display = 'block';
+                        targetSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        
+                        // 如果切换到编辑面板，刷新一次控制点编辑UI
+                        if (panelName === 'edit' && window.updateControlPointUI) {
+                            window.updateControlPointUI();
+                        }
+                        // 如果切换到编辑面板，更新应用费用显示和过山车列表
+                        if (panelName === 'edit') {
+                            if (window.updateApplyCostDisplay) {
+                                setTimeout(window.updateApplyCostDisplay, 100);
+                            }
+                            if (window.updateCoasterList) {
+                                setTimeout(window.updateCoasterList, 100);
+                            }
+                        }
+                        // 如果切换到排行榜面板，立即更新排行榜数据
+                        if (panelName === 'settings' && window.updateLeaderboard) {
+                            setTimeout(() => {
+                                updateLeaderboard();
+                                if (leaderboardManager) {
+                                    updatePlayerNameDisplay();
+                                }
+                            }, 100);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 导航按钮事件
+        document.querySelectorAll('.nav-button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                switchPanel(btn.dataset.panel);
+            });
+        });
+        
+        // UI关闭按钮
+        document.getElementById('uiCloseBtn').addEventListener('click', () => {
+            document.getElementById('ui').classList.remove('show');
+            switchPanel('game');
+        });
+        
+        // 游戏控制函数
+        function toggleGame() {
+            if (!editor) return;
+            
+            editor.toggleGame();
+            const state = editor.getGameState();
+            
+            // 更新UI（更新所有相关按钮）
+            const playPauseText = !state.running ? '▶️ 开始游戏' : (state.paused ? '▶️ 继续' : '⏸️ 暂停');
+            const playPauseTextTop = !state.running ? '▶️ 开始' : (state.paused ? '▶️ 继续' : '⏸️ 暂停');
+            
+            const btnPlayPause = document.getElementById('btnPlayPause');
+            const btnTopPlayPause = document.getElementById('btnTopPlayPause');
+            
+            if (btnPlayPause) {
+                btnPlayPause.textContent = playPauseText;
+            if (!state.running) {
+                    btnPlayPause.classList.remove('pause');
+            } else {
+                    btnPlayPause.classList.add('pause');
+                }
+            }
+            
+            if (btnTopPlayPause) {
+                btnTopPlayPause.textContent = playPauseTextTop;
+                if (!state.running) {
+                    btnTopPlayPause.style.background = 'rgba(76, 175, 80, 0.9)';
+                } else {
+                    btnTopPlayPause.style.background = 'rgba(255, 152, 0, 0.9)';
+                }
+            }
+            
+            // 同步本地变量（兼容现有代码）
+            gameRunning = state.running;
+            gamePaused = state.paused;
+        }
+        
+        // 游戏控制（使用 Editor 类的游戏状态管理）
+        const btnPlayPause = document.getElementById('btnPlayPause');
+        if (btnPlayPause) {
+            btnPlayPause.addEventListener('click', toggleGame);
+        }
+        
+        // 顶部游戏控制按钮
+        const btnTopPlayPause = document.getElementById('btnTopPlayPause');
+        if (btnTopPlayPause) {
+            btnTopPlayPause.addEventListener('click', toggleGame);
+        }
+        
+        document.getElementById('btnResetGame').addEventListener('click', () => {
+            if (!editor) return;
+            
+            editor.resetGame();
+            const state = editor.getGameState();
+            
+            // 更新UI
+            document.getElementById('btnPlayPause').textContent = '▶️ 开始游戏';
+            document.getElementById('btnPlayPause').classList.remove('pause');
+            
+            // 同步本地变量（兼容现有代码）
+            gameRunning = state.running;
+            gamePaused = state.paused;
+            totalLaps = state.totalLaps;
+            
+            updateTopBar();
+        });
+        
+        // 切换相机视角函数
+        function toggleCamera() {
+            if (!editor) return;
+            
+            const currentMode = editor.getCameraMode();
+            const newMode = currentMode === 'free' ? 'follow' : 'free';
+            editor.setCameraMode(newMode);
+            
+            // 更新按钮文本（更新所有相关按钮）
+            const btn = document.getElementById('btnToggleCamera');
+            const btnTop = document.getElementById('btnTopToggleCamera');
+            
+            if (newMode === 'follow') {
+                if (btn) {
+                    btn.textContent = '📹 自由视角';
+                    btn.style.background = 'rgba(76, 175, 80, 0.9)';
+                }
+                if (btnTop) {
+                    btnTop.textContent = '📹 自由';
+                    btnTop.style.background = 'rgba(76, 175, 80, 0.9)';
+                }
+            } else {
+                if (btn) {
+                    btn.textContent = '📹 切换视角';
+                    btn.style.background = 'rgba(156, 39, 176, 0.9)';
+                }
+                if (btnTop) {
+                    btnTop.textContent = '📹 视角';
+                    btnTop.style.background = 'rgba(156, 39, 176, 0.9)';
+                }
+            }
+        }
+        
+        // 切换相机视角
+        const btnToggleCamera = document.getElementById('btnToggleCamera');
+        if (btnToggleCamera) {
+            btnToggleCamera.addEventListener('click', toggleCamera);
+        }
+        
+        // 顶部切换视角按钮
+        const btnTopToggleCamera = document.getElementById('btnTopToggleCamera');
+        if (btnTopToggleCamera) {
+            btnTopToggleCamera.addEventListener('click', toggleCamera);
+        }
+        
+        // 游戏开始时自动运行
+        setTimeout(() => {
+            if (editor) {
+                editor.startGame();
+                const state = editor.getGameState();
+                
+                // 更新UI
+                const btnPlayPause = document.getElementById('btnPlayPause');
+                const btnTopPlayPause = document.getElementById('btnTopPlayPause');
+                if (btnPlayPause) {
+                    btnPlayPause.textContent = '⏸️ 暂停';
+                    btnPlayPause.classList.add('pause');
+                }
+                if (btnTopPlayPause) {
+                    btnTopPlayPause.textContent = '⏸️ 暂停';
+                    btnTopPlayPause.style.background = 'rgba(255, 152, 0, 0.9)';
+                }
+                
+                // 同步本地变量（兼容现有代码）
+                gameRunning = state.running;
+                gamePaused = state.paused;
+                
+                // 切换到游戏模式（这会自动清空曲线）
+                switchPanel('game');
+                
+                // 确保曲线被清空
+                if (editor.renderer) {
+                    editor.renderer.setCurveLineMesh([], false);
+                }
+                
+                // 更新顶部状态栏
+                updateTopBar();
+            }
+        }, 1000);
+        
+        // 暴露游戏状态到全局
+        window.gameRunning = gameRunning;
+        window.gamePaused = gamePaused;
+        
+        // 定期更新顶部状态栏和游戏状态
+        setInterval(() => {
+            if (editor) {
+                const state = editor.getGameState();
+                // 同步状态（兼容现有代码）
+                gameRunning = state.running;
+                gamePaused = state.paused;
+                totalLaps = state.totalLaps;
+                window.gameRunning = state.running;
+                window.gamePaused = state.paused;
+            }
+            updateTopBar();
+            // 如果排行榜面板可见，更新排行榜数据
+            if (currentPanel === 'settings' && window.updateLeaderboard) {
+                updateLeaderboard();
+            }
+        }, 100);
+        
+        // 初始化惊叫币数量
+        let lastCoinAmount = editor ? editor.screamCoins : 0;
+        
+        // 监听圈数完成（已在 Editor 类中处理）
+        // 圈数更新已通过 editor.incrementLap() 自动处理
+        
+        // 更新状态
+        function updateStatus() {
+            // 更新控制点操作UI显示状态
+            updateControlPointUI();
+            
+            // 更新添加按钮状态
+            if (editor && editor.updateAddButtonState) {
+                editor.updateAddButtonState();
+            }
+        }
+        
+        function updateEconomyUI(data) {
+            if (!data) return;
+            const coinEl = document.getElementById('screamCoinAmount');
+            const trackLengthCurrent = document.getElementById('trackLengthCurrent');
+            const trackLengthCost = document.getElementById('trackLengthCost');
+            const accelerationLevel = document.getElementById('accelerationLevel');
+            const brakeLevel = document.getElementById('brakeLevel');
+            const btnTrack = document.getElementById('btnBuyTrackLength');
+            
+            if (coinEl) coinEl.textContent = Math.floor(data.screamCoins || 0);
+            if (trackLengthCurrent) trackLengthCurrent.textContent = (data.trackLengthCurrent || 0).toFixed(0);
+            if (trackLengthCost) trackLengthCost.textContent = data.nextTrackLengthCost !== null ? data.nextTrackLengthCost : 'MAX';
+            if (accelerationLevel) accelerationLevel.textContent = (data.boostLevel || 0).toFixed(0);
+            if (brakeLevel) brakeLevel.textContent = (data.brakeLevel || 0).toFixed(0);
+            if (btnTrack) {
+                btnTrack.disabled = data.nextTrackLengthCost === null || data.screamCoins < data.nextTrackLengthCost;
+            }
+        }
+        window.updateEconomyUI = updateEconomyUI;
+        
+        function updateTrackLengthWarning(state) {
+            const warning = document.getElementById('trackLengthWarning');
+            if (!warning) return;
+            if (state && state.exceeded) {
+                warning.style.display = 'block';
+                warning.textContent = `当前轨道长度 ${state.current.toFixed(1)} m，超出限制 ${state.limit.toFixed(1)} m，请升级长度或缩短轨道。`;
+            } else {
+                warning.style.display = 'none';
+            }
+        }
+        window.updateTrackLengthWarning = updateTrackLengthWarning;
+
+        function updateSaveStatus(message, isError = false) {
+            const statusEl = document.getElementById('saveStatus');
+            if (!statusEl) return;
+            if (!message) {
+                statusEl.style.display = 'none';
+                return;
+            }
+            statusEl.style.display = 'block';
+            statusEl.style.color = isError ? '#F44336' : '#4CAF50';
+            statusEl.textContent = message;
+        }
+        window.updateSaveStatus = updateSaveStatus;
+
+        function refreshSaveControls(hasSave, slotStates) {
+            const loadBtn = document.getElementById('btnLoadTrack');
+            const slotSelect = document.getElementById('saveSlotSelect');
+            const quickSlotSelect = document.getElementById('quickSaveSlotSelect');
+            const slotInfoEl = document.getElementById('saveSlotInfo');
+
+            // 兼容旧调用：只有 hasSave 参数
+            if (!slotSelect || !Array.isArray(slotStates)) {
+                if (loadBtn) {
+                    loadBtn.disabled = !hasSave;
+                }
+                if (slotInfoEl) {
+                    slotInfoEl.textContent = hasSave ? '存在存档' : '无存档';
+                }
+                return;
+            }
+
+            // 使用主选择器或快速选择器的值（优先使用主选择器）
+            const selectedIndex = slotSelect ? (parseInt(slotSelect.value, 10) || 0) : 
+                                  (quickSlotSelect ? (parseInt(quickSlotSelect.value, 10) || 0) : 0);
+            
+            // 同步两个选择器的值
+            if (slotSelect && quickSlotSelect && slotSelect.value !== quickSlotSelect.value) {
+                quickSlotSelect.value = slotSelect.value;
+            }
+            
+            const slot = slotStates.find(s => s.index === selectedIndex) || { exists: false, savedAt: null };
+            const hasSlotSave = !!slot.exists;
+
+            if (loadBtn) {
+                loadBtn.disabled = !hasSlotSave;
+            }
+
+            if (slotInfoEl) {
+                const label = `槽 ${selectedIndex + 1}: `;
+                if (hasSlotSave) {
+                    const timeStr = slot.savedAt ? new Date(slot.savedAt).toLocaleString() : '';
+                    slotInfoEl.textContent = label + (timeStr ? `已存档 (${timeStr})` : '已存档');
+                } else {
+                    slotInfoEl.textContent = label + '空';
+                }
+            }
+        }
+        window.refreshSaveControls = refreshSaveControls;
+
+        // 成就系统UI更新
+        function updateAchievementsUI(achievementManager) {
+            if (!achievementManager) return;
+            
+            const unlockedCount = achievementManager.getUnlockedCount();
+            const totalCount = achievementManager.getTotalCount();
+            const completionRate = achievementManager.getCompletionRate();
+            
+            const progressEl = document.getElementById('achievementProgress');
+            const totalEl = document.getElementById('achievementTotal');
+            const percentEl = document.getElementById('achievementPercent');
+            
+            if (progressEl) progressEl.textContent = unlockedCount;
+            if (totalEl) totalEl.textContent = totalCount;
+            if (percentEl) percentEl.textContent = completionRate.toFixed(1);
+        }
+        window.updateAchievementsUI = updateAchievementsUI;
+
+        // 显示成就解锁通知
+        function showAchievementNotification(achievement) {
+            // 创建通知元素
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0, 0, 0, 0.95);
+                border: 3px solid #FFD700;
+                border-radius: 10px;
+                padding: 20px;
+                z-index: 10000;
+                text-align: center;
+                min-width: 300px;
+                box-shadow: 0 0 30px rgba(255, 215, 0, 0.5);
+            `;
+            
+            notification.innerHTML = `
+                <div style="font-size: 48px; margin-bottom: 10px;">${achievement.icon}</div>
+                <div style="color: #FFD700; font-size: 20px; font-weight: bold; margin-bottom: 5px;">
+                    成就解锁！
+                </div>
+                <div style="color: #fff; font-size: 16px; font-weight: bold; margin-bottom: 5px;">
+                    ${achievement.name}
+                </div>
+                <div style="color: #ccc; font-size: 14px; margin-bottom: 10px;">
+                    ${achievement.description}
+                </div>
+                ${achievement.reward > 0 ? `
+                    <div style="color: #4CAF50; font-size: 14px;">
+                        奖励: +${achievement.reward} 惊叫币
+                    </div>
+                ` : ''}
+            `;
+            
+            document.body.appendChild(notification);
+            
+            // 3秒后自动移除
+            setTimeout(() => {
+                notification.style.transition = 'opacity 0.5s';
+                notification.style.opacity = '0';
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.parentNode.removeChild(notification);
+                    }
+                }, 500);
+            }, 3000);
+        }
+        window.showAchievementNotification = showAchievementNotification;
+
+        // 显示成就列表
+        function showAchievementsList(achievementManager) {
+            if (!achievementManager) return;
+            
+            const listEl = document.getElementById('achievementsList');
+            if (!listEl) return;
+            
+            const categories = ['design', 'physics', 'progress', 'skill'];
+            const categoryNames = {
+                'design': '🎨 轨道设计',
+                'physics': '⚡ 物理指标',
+                'progress': '📈 游戏进度',
+                'skill': '🎯 技巧挑战'
+            };
+            
+            let html = '';
+            
+            for (const category of categories) {
+                const achievements = achievementManager.getAchievementsByCategory(category);
+                if (achievements.length === 0) continue;
+                
+                html += `<div style="margin-bottom: 15px; border-bottom: 1px solid #444; padding-bottom: 10px;">`;
+                html += `<div style="font-weight: bold; color: #4CAF50; margin-bottom: 8px;">${categoryNames[category]}</div>`;
+                
+                for (const ach of achievements) {
+                    const unlockedClass = ach.unlocked ? 'color: #4CAF50;' : 'color: #888; opacity: 0.6;';
+                    const progressBar = ach.target > 1 ? 
+                        `<div style="width: 100%; background: #333; border-radius: 3px; height: 4px; margin-top: 3px;">
+                            <div style="width: ${Math.min(100, (ach.progress / ach.target) * 100)}%; background: ${ach.unlocked ? '#4CAF50' : '#FF9800'}; height: 4px; border-radius: 3px;"></div>
+                        </div>` : '';
+                    const progressText = ach.target > 1 ? ` (${ach.progress.toFixed(0)}/${ach.target})` : '';
+                    
+                    html += `
+                        <div style="margin-bottom: 8px; padding: 5px; background: ${ach.unlocked ? 'rgba(76, 175, 80, 0.1)' : 'rgba(0, 0, 0, 0.2)'}; border-radius: 4px;">
+                            <div style="${unlockedClass}">
+                                <span style="font-size: 16px;">${ach.unlocked ? ach.icon : '🔒'}</span>
+                                <span style="font-weight: ${ach.unlocked ? 'bold' : 'normal'};">${ach.name}</span>
+                                ${ach.reward > 0 ? `<span style="color: #FFD700; font-size: 10px;"> +${ach.reward}💰</span>` : ''}
+                            </div>
+                            <div style="font-size: 10px; color: #aaa; margin-top: 2px;">
+                                ${ach.description}${progressText}
+                            </div>
+                            ${progressBar}
+                            ${ach.unlocked && ach.unlockedAt ? 
+                                `<div style="font-size: 9px; color: #666; margin-top: 3px;">
+                                    解锁于: ${new Date(ach.unlockedAt).toLocaleString('zh-CN')}
+                                </div>` : ''}
+                        </div>
+                    `;
+                }
+                
+                html += `</div>`;
+            }
+            
+            listEl.innerHTML = html;
+        }
+
+        // 成就列表显示/隐藏切换
+        document.getElementById('btnShowAchievements').addEventListener('click', () => {
+            const listEl = document.getElementById('achievementsList');
+            const btnEl = document.getElementById('btnShowAchievements');
+            if (listEl && editor && editor.achievementManager) {
+                if (listEl.style.display === 'none') {
+                    listEl.style.display = 'block';
+                    btnEl.textContent = '隐藏成就';
+                    showAchievementsList(editor.achievementManager);
+                } else {
+                    listEl.style.display = 'none';
+                    btnEl.textContent = '查看成就';
+                }
+            }
+        });
+        
+        // 更新控制点操作UI显示状态
+        function updateControlPointUI() {
+            const controlPointControls = document.getElementById('controlPointControls');
+            const btnAdd = document.getElementById('btnAddPoint');
+            const posXInput = document.getElementById('pointPosX');
+            const posYInput = document.getElementById('pointPosY');
+            const posZInput = document.getElementById('pointPosZ');
+            const leftDirX = document.getElementById('leftDirX');
+            const leftDirY = document.getElementById('leftDirY');
+            const leftDirZ = document.getElementById('leftDirZ');
+            const rightDirX = document.getElementById('rightDirX');
+            const rightDirY = document.getElementById('rightDirY');
+            const rightDirZ = document.getElementById('rightDirZ');
+            const activeEl = document.activeElement;
+            const shouldUpdateValue = (inputEl) => !inputEl || inputEl !== activeEl;
+            
+            const hasSelection = editor.selectedPointIndex >= 0 && editor.spline && editor.selectedPointIndex < editor.spline.pointCount;
+            
+            if (hasSelection) {
+                controlPointControls.style.display = 'block';
+                const point = editor.spline.getControlPoint(editor.selectedPointIndex);
+                if (btnAdd) {
+                    btnAdd.disabled = !!editor.trackLengthExceeded;
+                }
+                if (point) {
+                    if (posXInput && posYInput && posZInput) {
+                        posXInput.disabled = false;
+                        posYInput.disabled = false;
+                        posZInput.disabled = false;
+                        if (shouldUpdateValue(posXInput)) {
+                            posXInput.value = point.position.x.toFixed(2);
+                        }
+                        if (shouldUpdateValue(posYInput)) {
+                            posYInput.value = point.position.y.toFixed(2);
+                        }
+                        if (shouldUpdateValue(posZInput)) {
+                            posZInput.value = point.position.z.toFixed(2);
+                        }
+                    }
+                    const leftLength = point.leftTangent.length();
+                    const rightLength = point.rightTangent.length();
+                    const leftDir = leftLength > 0.0001 ? {
+                        x: point.leftTangent.x / leftLength,
+                        y: point.leftTangent.y / leftLength,
+                        z: point.leftTangent.z / leftLength
+                    } : { x: 0, y: 0, z: 0 };
+                    const rightDir = rightLength > 0.0001 ? {
+                        x: point.rightTangent.x / rightLength,
+                        y: point.rightTangent.y / rightLength,
+                        z: point.rightTangent.z / rightLength
+                    } : { x: 0, y: 0, z: 0 };
+                    if (leftDirX && leftDirY && leftDirZ) {
+                        leftDirX.disabled = false;
+                        leftDirY.disabled = false;
+                        leftDirZ.disabled = false;
+                        if (shouldUpdateValue(leftDirX)) {
+                            leftDirX.value = leftDir.x.toFixed(3);
+                        }
+                        if (shouldUpdateValue(leftDirY)) {
+                            leftDirY.value = leftDir.y.toFixed(3);
+                        }
+                        if (shouldUpdateValue(leftDirZ)) {
+                            leftDirZ.value = leftDir.z.toFixed(3);
+                        }
+                    }
+                    if (rightDirX && rightDirY && rightDirZ) {
+                        rightDirX.disabled = false;
+                        rightDirY.disabled = false;
+                        rightDirZ.disabled = false;
+                        if (shouldUpdateValue(rightDirX)) {
+                            rightDirX.value = rightDir.x.toFixed(3);
+                        }
+                        if (shouldUpdateValue(rightDirY)) {
+                            rightDirY.value = rightDir.y.toFixed(3);
+                        }
+                        if (shouldUpdateValue(rightDirZ)) {
+                            rightDirZ.value = rightDir.z.toFixed(3);
+                        }
+                    }
+                }
+            } else {
+                controlPointControls.style.display = 'none';
+                if (btnAdd) {
+                    btnAdd.disabled = true;
+                }
+                [posXInput, posYInput, posZInput, leftDirX, leftDirY, leftDirZ, rightDirX, rightDirY, rightDirZ].forEach((input) => {
+                    if (input) {
+                        input.disabled = true;
+                        input.value = '';
+                    }
+                });
+            }
+        }
+        
+        // 更新切线长度UI
+        function updateTangentUI() {
+            const leftTangentSlider = document.getElementById('leftTangentLength');
+            const rightTangentSlider = document.getElementById('rightTangentLength');
+            const leftTangentValue = document.getElementById('leftTangentLengthValue');
+            const rightTangentValue = document.getElementById('rightTangentLengthValue');
+            
+            if (editor.selectedPointIndex >= 0 && editor.selectedPointIndex < editor.spline.pointCount) {
+                const point = editor.spline.getControlPoint(editor.selectedPointIndex);
+                if (point) {
+                    const leftLength = point.leftTangent.length();
+                    const rightLength = point.rightTangent.length();
+                    
+                    leftTangentSlider.value = leftLength;
+                    leftTangentValue.textContent = leftLength.toFixed(2);
+                    rightTangentSlider.value = rightLength;
+                    rightTangentValue.textContent = rightLength.toFixed(2);
+                }
+            }
+        }
+        
+        // 将updateTangentUI暴露到全局，供editor调用
+        window.updateTangentUI = updateTangentUI;
+        
+        // 切线长度滑块
+        const leftTangentSlider = document.getElementById('leftTangentLength');
+        const rightTangentSlider = document.getElementById('rightTangentLength');
+        
+        function handleTangentLengthInput(which, value) {
+            if (!window.editor) return;
+            if (editor.selectedPointIndex < 0 || editor.selectedPointIndex >= editor.spline.pointCount) {
+                return;
+            }
+            if (which === 'left') {
+                editor.spline.setLeftTangentLength(editor.selectedPointIndex, value);
+            } else {
+                editor.spline.setRightTangentLength(editor.selectedPointIndex, value);
+            }
+            editor.spline.ensureC2Continuity(editor.selectedPointIndex);
+            editor.updateTrack();
+        }
+        
+        if (leftTangentSlider) {
+            leftTangentSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                document.getElementById('leftTangentLengthValue').textContent = value.toFixed(2);
+                handleTangentLengthInput('left', value);
+            });
+        }
+        if (rightTangentSlider) {
+            rightTangentSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                document.getElementById('rightTangentLengthValue').textContent = value.toFixed(2);
+                handleTangentLengthInput('right', value);
+            });
+        }
+        const posXInput = document.getElementById('pointPosX');
+        const posYInput = document.getElementById('pointPosY');
+        const posZInput = document.getElementById('pointPosZ');
+        const leftDirX = document.getElementById('leftDirX');
+        const leftDirY = document.getElementById('leftDirY');
+        const leftDirZ = document.getElementById('leftDirZ');
+        const rightDirX = document.getElementById('rightDirX');
+        const rightDirY = document.getElementById('rightDirY');
+        const rightDirZ = document.getElementById('rightDirZ');
+        
+        function emitPositionUpdate() {
+            if (!window.editor) return;
+            const x = parseFloat(posXInput.value);
+            const y = parseFloat(posYInput.value);
+            const z = parseFloat(posZInput.value);
+            if ([x, y, z].some((v) => Number.isNaN(v))) {
+                return;
+            }
+            window.editor.updateSelectedPointPositionFromUI({ x, y, z });
+        }
+        
+        [posXInput, posYInput, posZInput].forEach((input) => {
+            if (input) {
+                input.addEventListener('change', emitPositionUpdate);
+            }
+        });
+        
+        function emitDirectionUpdate(which) {
+            if (!window.editor) return;
+            const inputs = which === 'left' ? [leftDirX, leftDirY, leftDirZ] : [rightDirX, rightDirY, rightDirZ];
+            if (inputs.some((el) => !el)) return;
+            const x = parseFloat(inputs[0].value);
+            const y = parseFloat(inputs[1].value);
+            const z = parseFloat(inputs[2].value);
+            if ([x, y, z].some((v) => Number.isNaN(v))) {
+                return;
+            }
+            window.editor.updateSelectedPointTangentDirection(which, { x, y, z });
+        }
+        
+        [leftDirX, leftDirY, leftDirZ].forEach((input) => {
+            if (input) {
+                input.addEventListener('change', () => emitDirectionUpdate('left'));
+            }
+        });
+        [rightDirX, rightDirY, rightDirZ].forEach((input) => {
+            if (input) {
+                input.addEventListener('change', () => emitDirectionUpdate('right'));
+            }
+        });
+        
+        // 定期更新状态
+        setInterval(() => {
+            updateStatus();
+            updateTangentUI();
+        }, 500);
+        updateStatus();
+        updateTangentUI();
+        
+        // 阻止右键菜单
+        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    </script>
+</body>
+</html>
+

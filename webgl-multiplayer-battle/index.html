@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>WebGL2 多人联网战斗游戏</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            touch-action: none;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+            overflow: hidden;
+            position: fixed;
+            width: 100%;
+            height: 100%;
+        }
+        
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            pointer-events: none;
+        }
+        
+        #stats {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            pointer-events: none;
+        }
+        
+        #stats div {
+            margin: 5px 0;
+        }
+
+        #scoreboard {
+            position: absolute;
+            top: 140px;
+            right: 20px;
+            width: 260px;
+            max-height: 320px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 8px;
+            padding: 10px;
+            font-size: 13px;
+            overflow: hidden;
+            display: none;
+            pointer-events: none;
+        }
+
+        #scoreboard.visible {
+            display: block;
+            pointer-events: auto;
+        }
+
+        .scoreboard-header,
+        .scoreboard-row {
+            display: grid;
+            grid-template-columns: 1fr 35px 35px 45px;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .scoreboard-header {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #ccc;
+            margin-bottom: 6px;
+        }
+
+        #scoreboardList {
+            overflow-y: auto;
+            max-height: 250px;
+        }
+
+        .scoreboard-row {
+            padding: 4px 2px;
+            border-radius: 4px;
+            margin-bottom: 2px;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .scoreboard-row.local {
+            background: rgba(0, 200, 120, 0.15);
+        }
+
+        .scoreboard-row.dead {
+            opacity: 0.6;
+        }
+        
+        #healthBar {
+            width: 200px;
+            height: 20px;
+            background: rgba(255, 0, 0, 0.3);
+            border: 2px solid #fff;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        
+        #healthFill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff0000, #00ff00);
+            transition: width 0.3s;
+        }
+        
+        #status {
+            margin-top: 10px;
+            color: #0f0;
+            cursor: pointer;
+            pointer-events: auto;
+        }
+        
+        #status.dead {
+            background: rgba(255, 0, 0, 0.3);
+            padding: 5px 10px;
+            border-radius: 4px;
+            border: 1px solid rgba(255, 0, 0, 0.5);
+        }
+        
+        /* 虚拟摇杆 */
+        #virtualControls {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            width: 100%;
+            height: 40%;
+            pointer-events: none;
+            z-index: 50;
+        }
+        
+        #joystickContainer {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            width: 150px;
+            height: 150px;
+            pointer-events: auto;
+        }
+        
+        #joystickBase {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.2);
+            border: 3px solid rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            backdrop-filter: blur(10px);
+        }
+        
+        #joystickKnob {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            background: rgba(255, 255, 255, 0.8);
+            border: 2px solid rgba(255, 255, 255, 0.9);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            transition: transform 0.1s;
+        }
+        
+        #joystickContainer.active #joystickKnob {
+            transition: none;
+        }
+        
+        /* 射击按钮 */
+        #shootButton {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            width: 100px;
+            height: 100px;
+            background: rgba(255, 0, 0, 0.6);
+            border: 3px solid rgba(255, 255, 255, 0.8);
+            border-radius: 50%;
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+            user-select: none;
+            backdrop-filter: blur(10px);
+        }
+        
+        #shootButton:active {
+            background: rgba(255, 0, 0, 0.8);
+            transform: scale(0.95);
+        }
+        
+        /* 视角控制区域 */
+        #lookArea {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 50%;
+            height: 60%;
+            pointer-events: auto;
+        }
+        
+        /* 准星 */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 30px;
+            height: 30px;
+            pointer-events: none;
+            z-index: 200;
+        }
+        
+        #crosshair::before,
+        #crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(255, 255, 255, 0.8);
+        }
+        
+        #crosshair::before {
+            width: 2px;
+            height: 20px;
+            top: 5px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        
+        #crosshair::after {
+            width: 20px;
+            height: 2px;
+            left: 5px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        
+        /* 击杀提示 */
+        #killFeed {
+            margin-top: 10px;
+            max-height: 140px;
+            overflow: hidden;
+        }
+        
+        .killFeedItem {
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 8px 15px;
+            margin: 5px 0;
+            border-radius: 4px;
+            font-size: 14px;
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        .killFeedItem.death {
+            background: rgba(200, 0, 0, 0.7);
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        /* 小地图 */
+        #minimap {
+            position: absolute;
+            top: 160px;
+            right: 20px;
+            width: 200px;
+            height: 200px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            border-radius: 8px;
+            z-index: 100;
+            pointer-events: none;
+        }
+        
+        #minimapCanvas {
+            width: 100%;
+            height: 100%;
+            border-radius: 6px;
+        }
+        
+        /* 第一人称武器 */
+        #weapon {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px;
+            height: 300px;
+            pointer-events: none;
+            z-index: 100;
+            opacity: 0.9;
+        }
+        
+        #weaponCanvas {
+            width: 100%;
+            height: 100%;
+        }
+        
+        /* 帧率显示 */
+        #fps {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+        }
+        
+        @media (max-width: 768px) {
+            #ui {
+                font-size: 12px;
+                padding: 10px;
+            }
+            
+            #healthBar {
+                width: 150px;
+                height: 16px;
+            }
+            
+            #stats {
+                font-size: 12px;
+                padding: 10px;
+                top: 10px;
+                right: 10px;
+            }
+            
+            #scoreboard {
+                width: 210px;
+                right: 10px;
+                top: 120px;
+                max-height: 260px;
+            }
+            
+            .scoreboard-header,
+            .scoreboard-row {
+                font-size: 11px;
+                grid-template-columns: 1fr 30px 30px 40px;
+                gap: 6px;
+            }
+            
+            #joystickContainer {
+                width: 120px;
+                height: 120px;
+                bottom: 20px;
+                left: 20px;
+            }
+            
+            #joystickKnob {
+                width: 50px;
+                height: 50px;
+            }
+            
+            #shootButton {
+                width: 80px;
+                height: 80px;
+                bottom: 20px;
+                right: 20px;
+                font-size: 20px;
+            }
+            
+            #minimap {
+                width: 150px;
+                height: 150px;
+                top: 120px;
+                right: 10px;
+            }
+            
+            #weapon {
+                width: 200px;
+                height: 200px;
+            }
+            
+            #fps {
+                font-size: 10px;
+                padding: 3px 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="canvas"></canvas>
+        <div id="ui">
+            <div>玩家数: <span id="playerCount">0</span></div>
+            <div>生命值: <span id="health">100</span>/100</div>
+            <div id="healthBar">
+                <div id="healthFill" style="width: 100%"></div>
+            </div>
+            <div id="status">连接中...</div>
+            <div id="killFeed"></div>
+        </div>
+        
+        <div id="stats">
+            <div>击杀: 0</div>
+            <div>死亡: 0</div>
+            <div>KD: 0.00</div>
+        </div>
+
+        <div id="scoreboard">
+            <div class="scoreboard-header">
+                <span>玩家</span>
+                <span>K</span>
+                <span>D</span>
+                <span>KD</span>
+            </div>
+            <div id="scoreboardList"></div>
+        </div>
+        
+        <div id="crosshair"></div>
+        
+        <div id="minimap">
+            <canvas id="minimapCanvas"></canvas>
+        </div>
+        
+        <div id="weapon">
+            <canvas id="weaponCanvas"></canvas>
+        </div>
+        
+        <div id="fps">FPS: --</div>
+        
+        <div id="virtualControls">
+            <div id="joystickContainer">
+                <div id="joystickBase"></div>
+                <div id="joystickKnob"></div>
+            </div>
+            <div id="shootButton">射击</div>
+            <div id="lookArea"></div>
+        </div>
+    </div>
+    
+    <script type="module" src="client.js"></script>
+</body>
+</html>

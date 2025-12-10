@@ -1,0 +1,12 @@
+{
+  "name": "webgl2-cube-test",
+  "version": "1.0.0",
+  "description": "这个目录包含了生成\"美女\"和\"机器人\"图片的工具。",
+  "main": "generate-images.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

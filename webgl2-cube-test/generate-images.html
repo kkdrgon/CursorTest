@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>生成图片</title>
+</head>
+<body>
+    <h1>生成图片工具</h1>
+    <button onclick="generateBeautyImage()">生成美女图片</button>
+    <button onclick="generateRobotImage()">生成机器人图片</button>
+    <br><br>
+    <canvas id="canvas" width="800" height="800" style="border: 1px solid #ccc;"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        function drawBeauty(ctx, width, height) {
+            // 清空画布
+            ctx.clearRect(0, 0, width, height);
+            ctx.fillStyle = '#FFE4E1';
+            ctx.fillRect(0, 0, width, height);
+
+            // 绘制背景渐变
+            const gradient = ctx.createLinearGradient(0, 0, width, height);
+            gradient.addColorStop(0, '#FFB6C1');
+            gradient.addColorStop(1, '#FFE4E1');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+
+            // 绘制头部（圆形）
+            ctx.fillStyle = '#FFDBB3';
+            ctx.beginPath();
+            ctx.arc(width / 2, height * 0.3, 100, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#D4A574';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // 绘制头发
+            ctx.fillStyle = '#8B4513';
+            ctx.beginPath();
+            ctx.arc(width / 2, height * 0.25, 120, 0, Math.PI, true);
+            ctx.fill();
+
+            // 绘制眼睛
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(width / 2 - 30, height * 0.28, 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(width / 2 + 30, height * 0.28, 8, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 绘制眉毛
+            ctx.strokeStyle = '#654321';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(width / 2 - 50, height * 0.25);
+            ctx.quadraticCurveTo(width / 2 - 30, height * 0.23, width / 2 - 10, height * 0.25);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(width / 2 + 10, height * 0.25);
+            ctx.quadraticCurveTo(width / 2 + 30, height * 0.23, width / 2 + 50, height * 0.25);
+            ctx.stroke();
+
+            // 绘制鼻子
+            ctx.strokeStyle = '#D4A574';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(width / 2, height * 0.32);
+            ctx.lineTo(width / 2, height * 0.37);
+            ctx.stroke();
+
+            // 绘制嘴巴（微笑）
+            ctx.strokeStyle = '#FF69B4';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(width / 2, height * 0.38, 20, 0, Math.PI);
+            ctx.stroke();
+
+            // 绘制身体（裙子）
+            ctx.fillStyle = '#FF69B4';
+            ctx.beginPath();
+            ctx.moveTo(width / 2 - 80, height * 0.4);
+            ctx.lineTo(width / 2 + 80, height * 0.4);
+            ctx.lineTo(width / 2 + 100, height * 0.7);
+            ctx.lineTo(width / 2 - 100, height * 0.7);
+            ctx.closePath();
+            ctx.fill();
+
+            // 绘制装饰
+            ctx.fillStyle = '#FF1493';
+            ctx.beginPath();
+            ctx.arc(width / 2 - 40, height * 0.5, 15, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(width / 2 + 40, height * 0.5, 15, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 添加文字
+            ctx.fillStyle = '#000';
+            ctx.font = 'bold 40px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('美女', width / 2, height * 0.85);
+        }
+
+        function drawRobot(ctx, width, height) {
+            // 清空画布
+            ctx.clearRect(0, 0, width, height);
+            ctx.fillStyle = '#E0E0E0';
+            ctx.fillRect(0, 0, width, height);
+
+            // 绘制背景渐变
+            const gradient = ctx.createLinearGradient(0, 0, width, height);
+            gradient.addColorStop(0, '#708090');
+            gradient.addColorStop(1, '#C0C0C0');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+
+            // 绘制头部（方形）
+            ctx.fillStyle = '#C0C0C0';
+            ctx.strokeStyle = '#808080';
+            ctx.lineWidth = 4;
+            ctx.fillRect(width / 2 - 100, height * 0.15, 200, 150);
+            ctx.strokeRect(width / 2 - 100, height * 0.15, 200, 150);
+
+            // 绘制眼睛（LED灯）
+            ctx.fillStyle = '#00FF00';
+            ctx.beginPath();
+            ctx.arc(width / 2 - 40, height * 0.3, 15, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(width / 2 + 40, height * 0.3, 15, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 眼睛高光
+            ctx.fillStyle = '#FFFFFF';
+            ctx.beginPath();
+            ctx.arc(width / 2 - 35, height * 0.28, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(width / 2 + 45, height * 0.28, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 绘制嘴巴（LED显示屏）
+            ctx.fillStyle = '#FF0000';
+            ctx.fillRect(width / 2 - 50, height * 0.4, 100, 20);
+            ctx.fillStyle = '#FFFF00';
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('===', width / 2, height * 0.41 + 14);
+
+            // 绘制天线
+            ctx.strokeStyle = '#808080';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(width / 2 - 30, height * 0.15);
+            ctx.lineTo(width / 2 - 40, height * 0.05);
+            ctx.stroke();
+            ctx.fillStyle = '#FF0000';
+            ctx.beginPath();
+            ctx.arc(width / 2 - 40, height * 0.05, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 绘制身体（矩形）
+            ctx.fillStyle = '#A0A0A0';
+            ctx.fillRect(width / 2 - 120, height * 0.35, 240, 200);
+            ctx.strokeStyle = '#606060';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(width / 2 - 120, height * 0.35, 240, 200);
+
+            // 绘制胸部面板
+            ctx.fillStyle = '#808080';
+            ctx.fillRect(width / 2 - 80, height * 0.45, 160, 100);
+            ctx.strokeStyle = '#404040';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(width / 2 - 80, height * 0.45, 160, 100);
+
+            // 绘制按钮
+            ctx.fillStyle = '#0000FF';
+            ctx.beginPath();
+            ctx.arc(width / 2 - 30, height * 0.55, 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(width / 2, height * 0.55, 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(width / 2 + 30, height * 0.55, 8, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 绘制手臂（可活动关节）
+            ctx.fillStyle = '#B0B0B0';
+            // 左臂
+            ctx.fillRect(width / 2 - 140, height * 0.4, 30, 100);
+            ctx.fillRect(width / 2 - 150, height * 0.45, 20, 20);
+            // 右臂
+            ctx.fillRect(width / 2 + 110, height * 0.4, 30, 100);
+            ctx.fillRect(width / 2 + 130, height * 0.45, 20, 20);
+
+            // 绘制手（夹子）
+            ctx.strokeStyle = '#606060';
+            ctx.lineWidth = 4;
+            // 左手
+            ctx.beginPath();
+            ctx.moveTo(width / 2 - 130, height * 0.5);
+            ctx.lineTo(width / 2 - 145, height * 0.52);
+            ctx.lineTo(width / 2 - 155, height * 0.5);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(width / 2 - 130, height * 0.5);
+            ctx.lineTo(width / 2 - 145, height * 0.48);
+            ctx.lineTo(width / 2 - 155, height * 0.5);
+            ctx.stroke();
+            // 右手
+            ctx.beginPath();
+            ctx.moveTo(width / 2 + 130, height * 0.5);
+            ctx.lineTo(width / 2 + 145, height * 0.52);
+            ctx.lineTo(width / 2 + 155, height * 0.5);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(width / 2 + 130, height * 0.5);
+            ctx.lineTo(width / 2 + 145, height * 0.48);
+            ctx.lineTo(width / 2 + 155, height * 0.5);
+            ctx.stroke();
+
+            // 绘制腿部
+            ctx.fillStyle = '#909090';
+            ctx.fillRect(width / 2 - 60, height * 0.55, 40, 150);
+            ctx.fillRect(width / 2 + 20, height * 0.55, 40, 150);
+            
+            // 绘制脚
+            ctx.fillStyle = '#707070';
+            ctx.fillRect(width / 2 - 70, height * 0.7, 60, 30);
+            ctx.fillRect(width / 2 + 10, height * 0.7, 60, 30);
+
+            // 添加文字
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 40px Arial';
+            ctx.textAlign = 'center';
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 2;
+            ctx.strokeText('机器人', width / 2, height * 0.9);
+            ctx.fillText('机器人', width / 2, height * 0.9);
+        }
+
+        function downloadImage(filename) {
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        function generateBeautyImage() {
+            drawBeauty(ctx, canvas.width, canvas.height);
+            downloadImage('美女.png');
+        }
+
+        function generateRobotImage() {
+            drawRobot(ctx, canvas.width, canvas.height);
+            downloadImage('机器人.png');
+        }
+
+        // 默认绘制美女图片
+        drawBeauty(ctx, canvas.width, canvas.height);
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Tower Tactix - WebGL2</title>
+    <meta charset="UTF-8">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: white;
+            overflow: hidden;
+        }
+        
+        #defeatOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 999;
+        }
+
+        .defeat-content {
+            background: #2c3e50;
+            padding: 2rem;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 0 20px rgba(255, 0, 0, 0.3);
+            animation: pulseRed 2s infinite;
+        }
+
+        .defeat-title {
+            color: #e74c3c;
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        #retryButton {
+            background: #c0392b;
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            font-size: 1.2rem;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        #retryButton:hover {
+            background: #a93226;
+            transform: scale(1.05);
+        }
+
+        @keyframes pulseRed {
+            0% { box-shadow: 0 0 10px rgba(231, 76, 60, 0.3); }
+            50% { box-shadow: 0 0 25px rgba(231, 76, 60, 0.6); }
+            100% { box-shadow: 0 0 10px rgba(231, 76, 60, 0.3); }
+        }
+
+        #victoryOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 999;
+        }
+
+        .victory-content {
+            background: #2c3e50;
+            padding: 2rem;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
+        }
+
+        .victory-title {
+            color: #2ecc71;
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        #restartButton {
+            background: #27ae60;
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            font-size: 1.2rem;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        #restartButton:hover {
+            background: #219a52;
+            transform: scale(1.05);
+        }
+
+        #gameStatus {
+            position: absolute;
+            left: 50%;
+            top: 0px;
+            transform: translateX(-50%);
+            padding: 10px 20px;
+            display: flex;
+            flex-direction: row;
+            gap: 40px;
+            z-index: 10;
+            align-items: center;
+        }
+
+        .status-item {
+            min-width: 100px;
+            font-family: Arial, sans-serif;
+            font-size: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #toolPalette {
+            position: absolute;
+            left: 80%;
+            top: 50%;
+            transform: translateY(-50%);
+            margin-left: 20px;
+            padding: 10px 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+            z-index: 10;
+        }
+
+        #toolPaletteLeft {
+            position: absolute;
+            left: 0%;
+            top: 50%;
+            transform: translateY(-50%);
+            margin-left: 20px;
+            padding: 10px 20px;
+            display: flex;
+            flex-direction: row;
+            gap: 25px;
+            z-index: 10;
+        }
+
+        .tool-btn {
+            min-width: 80px;
+            padding: 12px 12px;
+            cursor: move;
+            background: #fff;
+            color: #333;
+            border: 2px solid #2196F3;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: all 0.2s;
+        }
+
+        .tool-btn:hover {
+            background: #2196F3;
+            color: white;
+            opacity: 0.8;
+        }
+
+        button[data-type="next"] {
+            min-width: 120px;
+            padding: 8px 15px;
+            margin-left: 30px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            transition: all 0.3s;
+            font-size: 15px;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        button[data-type="next"]:hover {
+            background: #1976D2;
+            transform: scale(1.05);
+        }
+
+        button[data-type="next"]:disabled {
+            background: #383a3d;
+        }
+
+        button[data-type="pause"] {
+            min-width: 20px;
+            padding: 8px 15px;
+            margin-left: 30px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            transition: all 0.3s;
+            font-size: 15px;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        button[data-type="pause"]:hover {
+            background: #1976D2;
+            transform: scale(1.05);
+        }
+
+        #game-controls {
+            color: white;
+            position: absolute;
+            left: 40%;
+            top: 40%;
+            display: flex;
+            gap: 10px;
+            padding: 10px 20px;
+            flex-direction: column;
+        }
+
+        .game-controls button {
+            padding: 6px 12px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        canvas {
+            width: calc(100% - 10px);
+            aspect-ratio: 8/5;
+            max-height: 100vh;
+            display: block;
+        }
+
+        #error {
+            color: red;
+            font-family: sans-serif;
+            padding: 20px;
+        }
+
+        .canvas-wrapper {
+            aspect-ratio: 8/5;
+            width: calc(100% - 130px);
+            max-height: 100vh;
+            touch-action: none;
+            position: relative;
+            display: inline-block;
+            margin-left: 120px;
+        }
+
+        .tip-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            pointer-events: none;
+        }
+
+        .tip-message {
+            position: absolute;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 6px;
+            font-size: 16px;
+            max-width: 80%;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.3s, transform 0.3s;
+            bottom: 10%;
+        }
+
+        .tip-message.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body>
+    <div id="baseDiv" class="canvas-wrapper">
+        <canvas id="webgl-canvas"></canvas>
+        <div id="toolPalette">
+            <button class="tool-btn" draggable="true" data-type="t0">MachineGun</button>
+            <button class="tool-btn" draggable="true" data-type="t1">Artillery</button>
+            <button class="tool-btn" draggable="true" data-type="t2">Missile</button>
+            <button class="tool-btn" draggable="true" data-type="t9">Quantum</button>
+        </div>
+        <div id="gameStatus">
+            <div class="status-item">
+                <span>❤️ HP: </span>
+                <span id="health">20</span>
+            </div>
+            <div class="status-item">
+                <span>🌊</span>
+                <span id="wave">1</span>
+                <span>/200wave</span>
+            </div>
+            <div class="status-item">
+                <span>🪙 Gold: </span>
+                <span id="gold">20</span>
+            </div>
+            <button data-type="next">
+                <span>Next(</span>
+                <span id="nextTime">30</span>
+                <span>)</span>
+            </button>
+            <button id="pause" data-type="pause">
+                <span>||</span>
+            </button>
+        </div>
+        <div id="toolPaletteLeft">
+            <button id="delete">delete</button>
+            <button id="update">update</button>
+        </div>
+        <div id="game-controls">
+            <button id="continue">Continue</button>
+            <button id="new">Restart</button>
+        </div>
+    </div>
+    <div id="error"></div>
+    
+    <script type="module" src="main.js"></script>
+</body>
+</html>
+
