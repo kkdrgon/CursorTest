@@ -1,0 +1,59 @@
+{
+  "entries": [
+    {
+      "id": "test-1",
+      "playerName": "测试玩家1",
+      "timestamp": 1764813183912,
+      "coasterValue": 5000,
+      "popularity": 100,
+      "rating": 4.5,
+      "laps": 3,
+      "trackLength": 150.5,
+      "coasterType": "木架过山车",
+      "maxSpeed": 25.3,
+      "maxGForce": 3.2,
+      "screamIndex": 8.5,
+      "thrillIndex": 7.8,
+      "comfortIndex": 6.2,
+      "safetyIndex": 9.1,
+      "trackData": null
+    },
+    {
+      "id": "test-2",
+      "playerName": "测试玩家2",
+      "timestamp": 1764813183913,
+      "coasterValue": 3500,
+      "popularity": 80,
+      "rating": 4.0,
+      "laps": 2,
+      "trackLength": 120.0,
+      "coasterType": "钢架过山车",
+      "maxSpeed": 30.5,
+      "maxGForce": 4.1,
+      "screamIndex": 9.2,
+      "thrillIndex": 8.5,
+      "comfortIndex": 5.8,
+      "safetyIndex": 8.9,
+      "trackData": null
+    },
+    {
+      "id": "test-3",
+      "playerName": "测试玩家3",
+      "timestamp": 1764813183914,
+      "coasterValue": 2800,
+      "popularity": 60,
+      "rating": 3.8,
+      "laps": 1,
+      "trackLength": 95.3,
+      "coasterType": "现代过山车",
+      "maxSpeed": 35.2,
+      "maxGForce": 4.8,
+      "screamIndex": 9.8,
+      "thrillIndex": 9.1,
+      "comfortIndex": 7.5,
+      "safetyIndex": 9.5,
+      "trackData": null
+    }
+  ],
+  "lastUpdate": 1764813183912
+}

@@ -1,0 +1,16 @@
+# Node.js
+node_modules/
+npm-debug.log
+package-lock.json
+
+# 排行榜数据文件
+leaderboard-data.json
+
+# 编辑器配置
+.vscode/
+.idea/
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+
