@@ -2062,44 +2062,103 @@ canvas.addEventListener("click", (event) => {
   const key = createStationKey(cell.x, cell.z);
   if (stations.has(key)) {
     const station = stations.get(key);
-    if (!playerSeated || playerStationId !== station.id) {
-      seatPlayerAtStation(station);
-    } else {
+    const choice = window.prompt(
+      "输入 1 乘坐/退出，2 切换编辑模式，3 新增轨道控制点，其他键取消："
+    );
+    if (choice === "1") {
+      if (!playerSeated || playerStationId !== station.id) {
+        seatPlayerAtStation(station);
+      } else {
+        dismountPlayer();
+      }
+    } else if (choice === "2") {
       toggleStationEditing(station);
+    } else if (choice === "3") {
+      const index = insertTrackControlPointAtDistance(
+        station,
+        playerRideProgress
+      );
+      if (index != null) {
+        playerEditMode = true;
+        playerEditStationId = station.id;
+        playerEditIndex = index;
+        updateStatus("已插入控制点，使用 Q/R 调整高度。");
+      }
+    } else {
+      updateStatus("已取消操作。");
     }
     return;
   }
   if (isCellOccupied(cell.x, cell.z)) {
-    const station = createStationAtCell(cell.x, cell.z);
-    updateStatus(
-      `已在 (${cell.x + 1}, ${cell.z + 1}) 建成站台，点击开始乘坐。`
+    const choice = window.prompt(
+      "输入 1 建造站台，2 添加站台起始轨道扩展控制点，其他键取消："
     );
+    if (choice === "1") {
+      const station = createStationAtCell(cell.x, cell.z);
+      updateStatus(
+        `已在 (${cell.x + 1}, ${cell.z + 1}) 建站台，点击可乘坐或编辑。`
+      );
+    } else if (choice === "2") {
+      const stationKey = window.prompt("输入站台坐标（例：10,15）");
+      if (stationKey) {
+        const parts = stationKey.split(",");
+        if (parts.length === 2) {
+          const sx = parseInt(parts[0], 10) - 1;
+          const sz = parseInt(parts[1], 10) - 1;
+          const skey = createStationKey(sx, sz);
+          const station = stations.get(skey);
+          if (station) {
+            const nodeIndex = insertTrackControlPointAtDistance(
+              station,
+              station.rideLength * 0.5
+            );
+            if (nodeIndex != null) {
+              updateStatus("已在该站台轨道添加控制点。");
+            }
+          } else {
+            updateStatus("未找到对应站台。");
+          }
+        }
+      }
+    } else {
+      updateStatus("已取消操作。");
+    }
     return;
   }
   if (!isPurchasable(cell)) {
-    updateStatus("该区域未解锁，无法建设或购买。");
+    updateStatus("该区域未解锁，无法进行操作。");
     return;
   }
 
   const purchaseKey = `${cell.x}-${cell.z}`;
-  if (purchasedCells.has(purchaseKey)) {
-    updateStatus(`扩展格 (${cell.x + 1}, ${cell.z + 1}) 已购入。`);
-    return;
-  }
-
-  const confirmed = window.confirm(
-    `是否购买靠近木栅栏的扩展格 (${cell.x + 1}, ${cell.z + 1})？`
+  const choice = window.prompt(
+    `位置 (${cell.x + 1}, ${cell.z + 1}) 尚未开发。输入 1 购买扩展格，2 建站台并自动购买，其他键取消：`
   );
-  if (!confirmed) {
-    updateStatus("已取消本次购买。");
-    return;
+  if (choice === "1") {
+    const confirmed = window.confirm(
+      `是否购买靠近木栅栏的扩展格 (${cell.x + 1}, ${cell.z + 1})？`
+    );
+    if (!confirmed) {
+      updateStatus("已取消购买。");
+      return;
+    }
+    purchasedCells.add(purchaseKey);
+    updatePurchaseTexture(cell.x, cell.z, true);
+    markCellOccupied(cell);
+    rebuildFenceMesh();
+    updateStatus(`成功购入扩展格 (${cell.x + 1}, ${cell.z + 1})！`);
+  } else if (choice === "2") {
+    purchasedCells.add(purchaseKey);
+    updatePurchaseTexture(cell.x, cell.z, true);
+    markCellOccupied(cell);
+    rebuildFenceMesh();
+    const station = createStationAtCell(cell.x, cell.z);
+    updateStatus(
+      `已购买并建站台 (${cell.x + 1}, ${cell.z + 1})，点击可乘坐或编辑。`
+    );
+  } else {
+    updateStatus("已取消操作。");
   }
-
-  purchasedCells.add(purchaseKey);
-  updatePurchaseTexture(cell.x, cell.z, true);
-  markCellOccupied(cell);
-  rebuildFenceMesh();
-  updateStatus(`成功购入扩展格 (${cell.x + 1}, ${cell.z + 1})！`);
 });
 
-updateStatus("点击公园地块可建站台，或购买扩展格。");
+updateStatus("点击公园地块可购买、建站或编辑轨道。");
