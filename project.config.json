@@ -1,0 +1,36 @@
+{
+  "miniprogramRoot": "",
+  "pluginRoot": "",
+  "cloudfunctionRoot": "",
+  "compileType": "game",
+  "appid": "touristappid",
+  "projectname": "webgl-rollercoaster",
+  "description": "WeChat minigame scaffold for the WebGL rollercoaster experience",
+  "libVersion": "3.0.0",
+  "setting": {
+    "es6": true,
+    "enhance": true,
+    "minified": false,
+    "newFeature": true,
+    "coverView": true,
+    "postcss": true
+  },
+  "packOptions": {
+    "ignore": [],
+    "include": []
+  },
+  "condition": {
+    "search": {
+      "list": []
+    },
+    "conversation": {
+      "list": []
+    },
+    "game": {
+      "list": []
+    },
+    "miniprogram": {
+      "list": []
+    }
+  }
+}

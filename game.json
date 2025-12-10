@@ -1,0 +1,18 @@
+{
+  "deviceOrientation": "landscape",
+  "showStatusBar": false,
+  "networkTimeout": {
+    "request": 30000,
+    "connectSocket": 30000,
+    "uploadFile": 30000,
+    "downloadFile": 30000
+  },
+  "openDataContext": "open-data",
+  "workers": "workers",
+  "subpackages": [
+    {
+      "name": "rollercoaster-core",
+      "root": "src/rollercoaster"
+    }
+  ]
+}
