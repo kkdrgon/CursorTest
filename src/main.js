@@ -160,6 +160,39 @@ function evaluateCubicBezierTangent(p0, p1, p2, p3, t) {
   ];
 }
 
+const HANDLE_PICK_RADIUS = 18;
+const HANDLE_HALF_SIZE = 0.18;
+
+function mat4MultiplyVec4(m, v) {
+  return [
+    m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12] * v[3],
+    m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13] * v[3],
+    m[2] * v[0] + m[6] * v[1] + m[10] * v[2] + m[14] * v[3],
+    m[3] * v[0] + m[7] * v[1] + m[11] * v[2] + m[15] * v[3],
+  ];
+}
+
+function projectWorldToScreen(point) {
+  const clip = mat4MultiplyVec4(camera.viewProjection, [
+    point[0],
+    point[1],
+    point[2],
+    1,
+  ]);
+  if (clip[3] === 0) {
+    return null;
+  }
+  const ndcX = clip[0] / clip[3];
+  const ndcY = clip[1] / clip[3];
+  if (ndcX < -1 || ndcX > 1 || ndcY < -1 || ndcY > 1) {
+    return null;
+  }
+  const rect = canvas.getBoundingClientRect();
+  const screenX = (ndcX * 0.5 + 0.5) * rect.width;
+  const screenY = (-ndcY * 0.5 + 0.5) * rect.height;
+  return { x: screenX, y: screenY };
+}
+
 const DEFAULT_PLAYER_CELL_X = Math.floor((CORE_MIN + CORE_MAX) / 2);
 const DEFAULT_PLAYER_CELL_Z = Math.floor((CORE_MIN + CORE_MAX) / 2);
 
